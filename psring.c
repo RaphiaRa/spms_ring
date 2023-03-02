@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 
 #define PSRING_MSG_RING_HEADER_OFFSET 128
 #define PSRING_BUF_RING_HEADER_OFFSET 128
@@ -22,7 +23,7 @@ typedef struct psring_shmem
 
 static int32_t psring_shmem_init(psring_shmem *shmem, const char *name, size_t len, int flags)
 {
-    int fd = shm_open(name, flags | O_RDWR | O_EXCL, S_IRUSR | S_IWUSR);
+    int fd = shm_open(name, flags | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd == -1)
         return -1;
     if (flags & O_CREAT)
@@ -101,7 +102,7 @@ static int32_t psring_msg_ring_init(struct psring_msg_ring *ring, const char *na
 {
     char shmem_name[256];
     int32_t ret = 0;
-    snprintf(shmem_name, sizeof(shmem_name), "%s/msg_ring", name);
+    snprintf(shmem_name, sizeof(shmem_name), "%s-msg_ring", name);
     if ((ret = psring_shmem_init(&ring->shmem, shmem_name, size * sizeof(struct psring_msg) + PSRING_MSG_RING_HEADER_OFFSET, flags)) < 0)
         return ret;
     void *ptr = psring_shmem_addr(&ring->shmem);
@@ -139,10 +140,10 @@ static int32_t psring_buf_ring_init(struct psring_buf_ring *ring, const char *na
 {
     char shmem_name[256];
     int32_t ret = 0;
-    snprintf(shmem_name, sizeof(shmem_name), "%s/buf_ring", name);
+    snprintf(shmem_name, sizeof(shmem_name), "%s-buf_ring", name);
     if ((ret = psring_shmem_init(&ring->shmem, shmem_name, size + PSRING_BUF_RING_HEADER_OFFSET, flags)) < 0)
         return ret;
-    void *ptr = psring_shmem_ptr(&ring->shmem);
+    void *ptr = psring_shmem_addr(&ring->shmem);
     ring->length = (uint64_t *)ptr;
     ring->mask = (uint64_t *)ptr + 1;
     ring->head = (uint64_t *)ptr + 2;
@@ -157,9 +158,9 @@ static int32_t psring_buf_ring_init(struct psring_buf_ring *ring, const char *na
     return 0;
 }
 
-static void psring_buf_ring_uninit(struct psring_msg_ring *ring)
+static void psring_buf_ring_uninit(struct psring_buf_ring *ring)
 {
-    psring_buf_uninit(&ring->shmem);
+    psring_shmem_uninit(&ring->shmem);
 }
 
 /**
@@ -184,7 +185,7 @@ struct psring
     struct psring_buf_ring buf_ring;
 };
 
-int32_t psring_init_pub(psring **out, const char *name, struct psring_config *config)
+int32_t psring_init_pub(psring **out, const char *name, struct psring_config *config, int32_t flags)
 {
     int32_t ret = 0;
     psring *p = (psring *)calloc(1, sizeof(psring));
@@ -192,24 +193,24 @@ int32_t psring_init_pub(psring **out, const char *name, struct psring_config *co
         return -1;
 
     size_t msg_entries = 1 << 11;
-    if (config->msg_entries != 0)
+    if (config && config->msg_entries != 0)
         msg_entries = config->msg_entries;
-    if ((ret = psring_msg_ring_init(&p->msg_ring, name, msg_entries, O_CREAT)) < 0)
+    if ((ret = psring_msg_ring_init(&p->msg_ring, name, msg_entries, flags | O_CREAT)) < 0)
     {
         free(p);
         return ret;
     }
 
     size_t buf_length = 1 << 22;
-    if (config->buf_length != 0)
+    if (config && config->buf_length != 0)
         buf_length = config->buf_length;
-    if ((ret = psring_buf_ring_init(&p->buf_ring, name, buf_length, O_CREAT)) < 0)
+    if ((ret = psring_buf_ring_init(&p->buf_ring, name, buf_length, flags | O_CREAT)) < 0)
     {
-        free(p);
         psring_msg_ring_uninit(&p->msg_ring);
+        free(p);
         return ret;
     }
-
+    *out = p;
     return 0;
 }
 
@@ -248,7 +249,7 @@ static void psring_ensure_avail(psring *ring, size_t len)
     }
 }
 
-static int32_t psring_flush_write_buf_ex(psring *ring, struct psring_write_buf *buf, size_t len, uint64_t key, uint8_t nil)
+static void psring_flush_write_buf_ex(psring *ring, void *addr, size_t len, uint64_t key, uint8_t nil)
 {
     uint32_t tail = *ring->msg_ring.tail;
     uint32_t idx = tail & *ring->msg_ring.mask;
@@ -257,7 +258,7 @@ static int32_t psring_flush_write_buf_ex(psring *ring, struct psring_write_buf *
     {
         psring_release_msg(ring, msg);
     }
-    msg->addr = buf->addr;
+    msg->addr = addr;
     msg->len = (uint32_t)len;
     msg->key = key;
     msg->nil = nil;
@@ -265,20 +266,23 @@ static int32_t psring_flush_write_buf_ex(psring *ring, struct psring_write_buf *
     __atomic_store(ring->msg_ring.tail, &tail, __ATOMIC_RELEASE);
 }
 
-int32_t psring_get_write_buf(psring *ring, struct psring_write_buf *write_buf, size_t len)
+int32_t psring_get_write_buf(psring *ring, void **addr, size_t len)
 {
-    psring_ensure_avail(ring, len);
     while (1) // try until we get a suitable buffer
     {
+        psring_ensure_avail(ring, len);
         uint32_t buf_len = (uint32_t)len;
-        void *buf = psring_get_buf(buf, &buf_len);
-        if (buf_len < len)
+        void *buf = psring_get_buf(ring, &buf_len);
+        if (buf_len >= len) // got a suitable buffer
         {
+            *addr = buf;
+            return 0;
         }
+        psring_flush_write_buf_ex(ring, buf, 0, 0, 1);
     }
 }
 
-int32_t psring_flush_write_buf(psring *ring, struct psring_write_buf *block, size_t len, uint64_t key)
+int32_t psring_flush_write_buf(psring *ring, void *addr, size_t len, uint64_t key)
 {
     uint32_t msg_idx = *ring->msg_ring.head & *ring->msg_ring.mask;
     struct psring_msg *msg = &ring->msg_ring.buf[msg_idx];
@@ -286,4 +290,29 @@ int32_t psring_flush_write_buf(psring *ring, struct psring_write_buf *block, siz
     {
         psring_release_msg(ring, msg);
     }
+    psring_flush_write_buf_ex(ring, addr, len, key, 0);
+    return 0;
+}
+
+int32_t psring_write(psring *ring, const void *addr, size_t len)
+{
+    return psring_write_with_key(ring, addr, len, 0);
+}
+
+int32_t psring_write_with_key(psring *ring, const void *addr, size_t len, uint64_t key)
+{
+    int32_t ret = 0;
+    void *ptr = NULL;
+    if ((ret = psring_get_write_buf(ring, &ptr, len)) < 0)
+        return ret;
+    memcpy(ptr, addr, len);
+    psring_flush_write_buf(ring, ptr, len, key);
+    return 0;
+}
+
+void psring_free(psring *ring)
+{
+    psring_buf_ring_uninit(&ring->buf_ring);
+    psring_msg_ring_uninit(&ring->msg_ring);
+    free(ring);
 }
