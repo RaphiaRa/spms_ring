@@ -183,9 +183,10 @@ struct psring
 {
     struct psring_msg_ring msg_ring;
     struct psring_buf_ring buf_ring;
+    uint32_t sub_head;
 };
 
-int32_t psring_init_pub(psring **out, const char *name, struct psring_config *config, int32_t flags)
+int32_t psring_pub_create(psring **out, const char *name, struct psring_config *config, int32_t flags)
 {
     int32_t ret = 0;
     psring *p = (psring *)calloc(1, sizeof(psring));
@@ -315,4 +316,41 @@ void psring_free(psring *ring)
     psring_buf_ring_uninit(&ring->buf_ring);
     psring_msg_ring_uninit(&ring->msg_ring);
     free(ring);
+}
+
+int32_t psring_sub_create(psring **out, const char *name)
+{
+    int32_t ret = 0;
+    psring *p = (psring *)calloc(1, sizeof(psring));
+    if (!p)
+        return -1;
+
+    if ((ret = psring_msg_ring_init(&p->msg_ring, name, 0, 0)) < 0)
+    {
+        free(p);
+        return ret;
+    }
+
+    if ((ret = psring_buf_ring_init(&p->buf_ring, name, 0, 0)) < 0)
+    {
+        psring_msg_ring_uninit(&p->msg_ring);
+        free(p);
+        return ret;
+    }
+    psring_pos_rewind(p);
+    *out = p;
+    return 0;
+}
+
+int32_t psring_pos_rewind(psring *ring)
+{
+    uint32_t tail;
+    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
+    ring->sub_head = tail;
+    return 0;
+}
+
+int32_t psring_get_read_buf(psring *ring, const void **addr, size_t *len)
+{
+    
 }
