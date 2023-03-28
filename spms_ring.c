@@ -34,6 +34,10 @@ static int32_t spms_ring_shmem_init(spms_ring_shmem *shmem, const char *name, si
             return -1;
         }
     }
+    else
+    {
+        len = lseek(fd, 0, SEEK_END);
+    }
     void *seg = mmap(NULL, len, PROT_READ | PROT_WRITE,
                      MAP_SHARED, fd, 0);
     if (seg == MAP_FAILED)
@@ -72,7 +76,7 @@ struct spms_ring_msg
     uint8_t nil;
     uint32_t len;
     uint64_t key;
-    void *addr;
+    uint64_t offset;
 };
 
 static void spms_ring_msg_update(struct spms_ring_msg *msg)
@@ -103,7 +107,8 @@ static int32_t spms_ring_msg_ring_init(struct spms_ring_msg_ring *ring, const ch
     char shmem_name[256];
     int32_t ret = 0;
     snprintf(shmem_name, sizeof(shmem_name), "%s-msg_ring", name);
-    if ((ret = spms_ring_shmem_init(&ring->shmem, shmem_name, size * sizeof(struct spms_ring_msg) + SPMS_RING_MSG_RING_HEADER_OFFSET, flags)) < 0)
+    size_t total_size = size > 0 ? size * sizeof(struct spms_ring_msg) + SPMS_RING_MSG_RING_HEADER_OFFSET : 0;
+    if ((ret = spms_ring_shmem_init(&ring->shmem, shmem_name, total_size, flags)) < 0)
         return ret;
     void *ptr = spms_ring_shmem_addr(&ring->shmem);
     ring->entries = (uint32_t *)ptr;
@@ -114,7 +119,7 @@ static int32_t spms_ring_msg_ring_init(struct spms_ring_msg_ring *ring, const ch
     if (flags & O_CREAT)
     {
         *ring->entries = size;
-        *ring->mask = (*ring->entries << 1) - 1;
+        *ring->mask = *ring->entries - 1;
         *ring->head = 0;
         *ring->tail = 0;
         memset(ring->buf, 0, size * sizeof(struct spms_ring_msg));
@@ -133,6 +138,7 @@ struct spms_ring_buf_ring
     uint64_t *mask;
     uint64_t *head;
     uint64_t *tail;
+    void *buf;
     spms_ring_shmem shmem;
 };
 
@@ -141,17 +147,19 @@ static int32_t spms_ring_buf_ring_init(struct spms_ring_buf_ring *ring, const ch
     char shmem_name[256];
     int32_t ret = 0;
     snprintf(shmem_name, sizeof(shmem_name), "%s-buf_ring", name);
-    if ((ret = spms_ring_shmem_init(&ring->shmem, shmem_name, size + SPMS_RING_BUF_RING_HEADER_OFFSET, flags)) < 0)
+    size_t total_size = size > 0 ? size + SPMS_RING_BUF_RING_HEADER_OFFSET : 0;
+    if ((ret = spms_ring_shmem_init(&ring->shmem, shmem_name, total_size, flags)) < 0)
         return ret;
     void *ptr = spms_ring_shmem_addr(&ring->shmem);
     ring->length = (uint64_t *)ptr;
     ring->mask = (uint64_t *)ptr + 1;
     ring->head = (uint64_t *)ptr + 2;
     ring->tail = (uint64_t *)ptr + 3;
+    ring->buf = (void *)((uint8_t *)ptr + SPMS_RING_BUF_RING_HEADER_OFFSET);
     if (flags & O_CREAT)
     {
         *ring->length = size;
-        *ring->mask = (*ring->length << 1) - 1;
+        *ring->mask = *ring->length - 1;
         *ring->head = 0;
         *ring->tail = 0;
     }
@@ -219,27 +227,28 @@ int32_t spms_ring_pub_create(spms_ring **out, const char *name, struct spms_ring
 
 static void spms_ring_release_msg(spms_ring *ring, struct spms_ring_msg *msg)
 {
-    assert((uint8_t *)ring->buf_ring.shmem.addr + (*ring->msg_ring.head & *ring->msg_ring.mask) == (uint8_t *)msg->addr && "Released buffer must match ring ");
-    ring->buf_ring.head += (uint64_t)msg->len;
-    msg->addr = NULL;
+    assert((*ring->buf_ring.head & *ring->buf_ring.mask) == msg->offset && "Released buffer must match ring");
+    *ring->buf_ring.head += (uint64_t)msg->len;
+    msg->offset = 0;
     msg->len = 0;
     spms_ring_msg_update(msg);
 }
 
-static void *spms_ring_get_buf(spms_ring *ring, uint32_t *len)
+static uint64_t spms_ring_get_buf(spms_ring *ring, uint32_t *len)
 {
     uint64_t avail = *ring->buf_ring.length - (*ring->buf_ring.tail - *ring->buf_ring.head);
     uint64_t index = *ring->buf_ring.tail & *ring->buf_ring.mask;
     uint64_t trail = *ring->buf_ring.length - index;
     uint64_t writeable = avail < trail ? avail : trail;
     *len = (uint32_t)((uint64_t)*len < writeable ? (uint64_t)*len : writeable);
-    return (uint8_t *)ring->buf_ring.shmem.addr + index;
+    return index;
 }
 
-static void spms_ring_release_msg_from_head(spms_ring *ring, uint32_t offset)
+static void spms_ring_release_msg_from_head(spms_ring *ring)
 {
-    uint32_t index = (*ring->msg_ring.head + offset) & *ring->msg_ring.mask;
+    uint32_t index = *ring->msg_ring.head & *ring->msg_ring.mask;
     spms_ring_release_msg(ring, &ring->msg_ring.buf[index]);
+    ++(*ring->msg_ring.head);
 }
 
 static void spms_ring_ensure_avail(spms_ring *ring, size_t len)
@@ -248,20 +257,22 @@ static void spms_ring_ensure_avail(spms_ring *ring, size_t len)
     uint64_t capacity = *ring->buf_ring.length;
     while (capacity - (*ring->buf_ring.tail - *ring->buf_ring.head) < len)
     {
-        spms_ring_release_msg_from_head(ring, n++);
+        spms_ring_release_msg_from_head(ring);
     }
 }
 
-static void spms_ring_flush_write_buf_ex(spms_ring *ring, void *addr, size_t len, uint64_t key, uint8_t nil)
+static void spms_ring_flush_write_buf_ex(spms_ring *ring, uint64_t offset, size_t len, uint64_t key, uint8_t nil)
 {
     uint32_t tail = *ring->msg_ring.tail;
     uint32_t idx = tail & *ring->msg_ring.mask;
     struct spms_ring_msg *msg = &ring->msg_ring.buf[idx];
-    if (msg->addr)
+    if (msg->len)
     {
         spms_ring_release_msg(ring, msg);
     }
-    msg->addr = addr;
+    assert((*ring->buf_ring.tail & *ring->buf_ring.mask) == offset && "Flushed buffer must match ring");
+    *ring->buf_ring.tail += (uint64_t)len;
+    msg->offset = offset;
     msg->len = (uint32_t)len;
     msg->key = key;
     msg->nil = nil;
@@ -275,25 +286,19 @@ int32_t spms_ring_get_write_buf(spms_ring *ring, void **addr, size_t len)
     {
         spms_ring_ensure_avail(ring, len);
         uint32_t buf_len = (uint32_t)len;
-        void *buf = spms_ring_get_buf(ring, &buf_len);
+        uint64_t offset = spms_ring_get_buf(ring, &buf_len);
         if (buf_len >= len) // got a suitable buffer
         {
-            *addr = buf;
+            *addr = (uint8_t *)ring->buf_ring.buf + offset;
             return 0;
         }
-        spms_ring_flush_write_buf_ex(ring, buf, buf_len, 0, 1);
+        spms_ring_flush_write_buf_ex(ring, offset, buf_len, 0, 1);
     }
 }
 
 int32_t spms_ring_flush_write_buf(spms_ring *ring, void *addr, size_t len, uint64_t key)
 {
-    uint32_t msg_idx = *ring->msg_ring.head & *ring->msg_ring.mask;
-    struct spms_ring_msg *msg = &ring->msg_ring.buf[msg_idx];
-    if (msg->addr)
-    {
-        spms_ring_release_msg(ring, msg);
-    }
-    spms_ring_flush_write_buf_ex(ring, addr, len, key, 0);
+    spms_ring_flush_write_buf_ex(ring, (uint8_t *)addr - (uint8_t *)ring->buf_ring.buf, len, key, 0);
     return 0;
 }
 
@@ -357,7 +362,7 @@ int32_t spms_ring_get_read_buf(spms_ring *ring, const void **out_addr, size_t *o
 {
     uint32_t tail, idx, len;
     uint8_t ver;
-    void* addr;
+    uint64_t offset;
     __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
     if (tail - ring->sub_head > ring->safe_zone) // ensure safe zone
     {
@@ -373,9 +378,9 @@ int32_t spms_ring_get_read_buf(spms_ring *ring, const void **out_addr, size_t *o
     if (ring->sub_head == tail)
         return -1;
     __atomic_load(&msg->ver, &ver, __ATOMIC_ACQUIRE);
-    __atomic_load(&msg->addr, &addr, __ATOMIC_RELAXED);
+    __atomic_load(&msg->offset, &offset, __ATOMIC_RELAXED);
     __atomic_load(&msg->len, &len, __ATOMIC_RELAXED);
-    *out_addr = addr;
+    *out_addr = (uint8_t *)ring->buf_ring.buf + offset;
     *out_len = len;
     return ver;
 }
@@ -399,7 +404,7 @@ int64_t spms_ring_read_msg(spms_ring *ring, void *addr, size_t len)
         if (ver < 0 || ptr_len > len)
             return -1;
 
-        memcpy((void *)addr, ptr, ptr_len);
+        memcpy(addr, ptr, ptr_len);
         if (spms_ring_finalize_read_buf(ring, ver) == 0)
             return ptr_len;
     }
