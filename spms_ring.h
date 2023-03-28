@@ -31,11 +31,10 @@ int64_t spms_ring_read_msg(spms_ring *ring, void *addr, size_t len);
  */
 int32_t spms_ring_pos_rewind(spms_ring *ring);
 int32_t spms_ring_get_pos_by_ts(spms_ring *ring, uint32_t *pos, uint64_t ts);
-int32_t spms_ring_get_pos_after_ts(spms_ring *ring, uint32_t *pos, uint64_t ts);
-int32_t spms_ring_get_front_ts(spms_ring *ring, uint64_t *ts);
-int32_t spms_ring_get_front_pos(spms_ring *ring, uint32_t *pos);
+int32_t spms_ring_get_back_ts(spms_ring *ring, uint64_t *ts);
 int32_t spms_ring_get_back_pos(spms_ring *ring, uint32_t *pos);
-int32_t spms_ring_set_back_pos(spms_ring *ring, uint32_t pos);
+int32_t spms_ring_get_front_pos(spms_ring *ring, uint32_t *pos);
+int32_t spms_ring_set_front_pos(spms_ring *ring, uint32_t pos);
 
 /** Zero copy api */
 int32_t spms_ring_get_write_buf(spms_ring *ring, void **addr, size_t len);

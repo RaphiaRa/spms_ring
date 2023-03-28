@@ -11,6 +11,11 @@ int main()
         printf("spms_ring_sub_create failed");
         return -1;
     }
+    uint64_t ts;
+    spms_ring_get_back_ts(ring, &ts);
+    uint32_t pos;
+    spms_ring_get_pos_by_ts(ring, &pos, ts - 3);
+    spms_ring_set_front_pos(ring, pos);
     while(1)
     {
         char buf[1024];

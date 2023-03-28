@@ -8,11 +8,12 @@
 #include <fcntl.h>
 
 // Get current time as string
-void get_time_str(char *s, size_t max)
+uint64_t get_time(char *s, size_t max)
 {
     time_t t = time(NULL);
     struct tm *tm = localtime(&t);
     strftime(s, max, "%c", tm);
+    return (uint64_t)t;
 }
 
 static int stop = 0;
@@ -35,9 +36,9 @@ int main()
     while(!stop)
     {
         char buf[1024];
-        get_time_str(buf, sizeof(buf));
-        spms_ring_write_msg(ring, buf, strlen(buf));
-        usleep(1000);
+        uint64_t ts = get_time(buf, sizeof(buf));
+        spms_ring_write_msg_with_ts(ring, buf, strlen(buf), ts);
+        sleep(1);
     }
     printf("Stopping...\n");
     spms_ring_free(ring);

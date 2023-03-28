@@ -75,7 +75,7 @@ struct spms_ring_msg
     uint8_t ver;
     uint8_t nil;
     uint32_t len;
-    uint64_t key;
+    uint64_t ts;
     uint64_t offset;
 };
 
@@ -261,7 +261,7 @@ static void spms_ring_ensure_avail(spms_ring *ring, size_t len)
     }
 }
 
-static void spms_ring_flush_write_buf_ex(spms_ring *ring, uint64_t offset, size_t len, uint64_t key, uint8_t nil)
+static void spms_ring_flush_write_buf_ex(spms_ring *ring, uint64_t offset, size_t len, uint64_t ts, uint8_t nil)
 {
     uint32_t tail = *ring->msg_ring.tail;
     uint32_t idx = tail & *ring->msg_ring.mask;
@@ -274,7 +274,7 @@ static void spms_ring_flush_write_buf_ex(spms_ring *ring, uint64_t offset, size_
     *ring->buf_ring.tail += (uint64_t)len;
     msg->offset = offset;
     msg->len = (uint32_t)len;
-    msg->key = key;
+    msg->ts = ts;
     msg->nil = nil;
     ++tail;
     __atomic_store(ring->msg_ring.tail, &tail, __ATOMIC_RELEASE);
@@ -355,6 +355,55 @@ int32_t spms_ring_pos_rewind(spms_ring *ring)
     uint32_t tail;
     __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
     ring->sub_head = tail;
+    return 0;
+}
+
+int32_t spms_ring_get_pos_by_ts(spms_ring *ring, uint32_t *pos, uint64_t ts)
+{
+    uint32_t head, tail;
+    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
+    head = tail - *ring->msg_ring.entries;
+    while (head != tail)
+    {
+        struct spms_ring_msg *a = &ring->msg_ring.buf[(tail - 2) & *ring->msg_ring.mask];
+        struct spms_ring_msg *b = &ring->msg_ring.buf[(tail - 1) & *ring->msg_ring.mask];
+
+        if (a->ts <= ts && b->ts >= ts)
+        {
+            *pos = tail;
+            return 0;
+        }
+        --tail;
+    }
+    return -1;
+}
+
+int32_t spms_ring_get_back_ts(spms_ring *ring, uint64_t *ts)
+{
+    uint32_t tail;
+    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
+    struct spms_ring_msg *msg = &ring->msg_ring.buf[(tail - 1) & *ring->msg_ring.mask];
+    *ts = msg->ts;
+    return 0;
+}
+
+int32_t spms_ring_get_back_pos(spms_ring *ring, uint32_t *pos)
+{
+    uint32_t tail;
+    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
+    *pos = (tail - 1);
+    return 0;
+}
+
+int32_t spms_ring_get_front_pos(spms_ring *ring, uint32_t *pos)
+{
+    *pos = ring->sub_head;
+    return 0;
+}
+
+int32_t spms_ring_set_front_pos(spms_ring *ring, uint32_t pos)
+{
+    ring->sub_head = pos;
     return 0;
 }
 
