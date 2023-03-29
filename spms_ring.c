@@ -9,24 +9,42 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <errno.h>
 
 #define SPMS_RING_MSG_RING_HEADER_OFFSET 128
 #define SPMS_RING_BUF_RING_HEADER_OFFSET 128
 
+#define SPMS_RING_SHMEM_FLAG_CREATE 1
+#define SPMS_RING_SHMEM_FLAG_PERSISTENT 2
+
 typedef struct spms_ring_shmem
 {
     char name[256];
-    uint8_t created;
+    int32_t flags;
+    int32_t fd;
     size_t len;
     void *addr;
 } spms_ring_shmem;
 
-static int32_t spms_ring_shmem_init(spms_ring_shmem *shmem, const char *name, size_t len, int flags)
+static int32_t spms_ring_shmem_init(spms_ring_shmem *shmem, const char *name, size_t len, int32_t flags)
 {
-    int fd = shm_open(name, flags | O_RDWR, S_IRUSR | S_IWUSR);
+    int32_t shm_flags = 0;
+    if (flags & SPMS_RING_SHMEM_FLAG_CREATE)
+    {
+        shm_flags |= O_CREAT;
+        shm_flags |= O_EXCL;
+    }
+    int32_t fd = shm_open(name, shm_flags | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd == -1)
-        return -1;
-    if (flags & O_CREAT)
+    {
+        if (errno != EEXIST)
+            return -1;
+        shm_flags &= ~O_CREAT;
+        fd = shm_open(name, shm_flags | O_RDWR, S_IRUSR | S_IWUSR);
+        if (fd == -1)
+            return -1;
+    }
+    if (flags & SPMS_RING_SHMEM_FLAG_CREATE)
     {
         if (ftruncate(fd, len) == -1)
         {
@@ -45,12 +63,13 @@ static int32_t spms_ring_shmem_init(spms_ring_shmem *shmem, const char *name, si
         close(fd);
         return -1;
     }
-    close(fd);
+
     snprintf(shmem->name, sizeof(shmem->name), "%s", name);
-    shmem->created = flags & O_CREAT;
+    shmem->flags = flags;
     shmem->len = len;
     shmem->addr = seg;
-    return 0;
+    shmem->fd = fd;
+    return (shm_flags & O_CREAT ? 1 : 0);
 }
 
 static void *spms_ring_shmem_addr(spms_ring_shmem *shmem)
@@ -65,8 +84,9 @@ static size_t spms_ring_shmem_len(spms_ring_shmem *shmem)
 
 static void spms_ring_shmem_uninit(spms_ring_shmem *shmem)
 {
+    close(shmem->fd);
     munmap(shmem->addr, shmem->len);
-    if (shmem->created)
+    if (shmem->flags & SPMS_RING_SHMEM_FLAG_CREATE && !(shmem->flags & SPMS_RING_SHMEM_FLAG_PERSISTENT))
         shm_unlink(shmem->name);
 }
 
@@ -102,7 +122,7 @@ struct spms_ring_msg_ring
     spms_ring_shmem shmem;
 };
 
-static int32_t spms_ring_msg_ring_init(struct spms_ring_msg_ring *ring, const char *name, size_t size, int flags)
+static int32_t spms_ring_msg_ring_init(struct spms_ring_msg_ring *ring, const char *name, size_t size, int32_t flags)
 {
     char shmem_name[256];
     int32_t ret = 0;
@@ -116,7 +136,7 @@ static int32_t spms_ring_msg_ring_init(struct spms_ring_msg_ring *ring, const ch
     ring->head = (uint32_t *)ptr + 2;
     ring->tail = (uint32_t *)ptr + 3;
     ring->buf = (struct spms_ring_msg *)((uint8_t *)ptr + SPMS_RING_MSG_RING_HEADER_OFFSET);
-    if (flags & O_CREAT)
+    if (ret == 1) // created
     {
         *ring->entries = size;
         *ring->mask = *ring->entries - 1;
@@ -142,7 +162,7 @@ struct spms_ring_buf_ring
     spms_ring_shmem shmem;
 };
 
-static int32_t spms_ring_buf_ring_init(struct spms_ring_buf_ring *ring, const char *name, size_t size, int flags)
+static int32_t spms_ring_buf_ring_init(struct spms_ring_buf_ring *ring, const char *name, size_t size, int32_t flags)
 {
     char shmem_name[256];
     int32_t ret = 0;
@@ -156,7 +176,7 @@ static int32_t spms_ring_buf_ring_init(struct spms_ring_buf_ring *ring, const ch
     ring->head = (uint64_t *)ptr + 2;
     ring->tail = (uint64_t *)ptr + 3;
     ring->buf = (void *)((uint8_t *)ptr + SPMS_RING_BUF_RING_HEADER_OFFSET);
-    if (flags & O_CREAT)
+    if (ret == 1) // created
     {
         *ring->length = size;
         *ring->mask = *ring->length - 1;
@@ -202,11 +222,13 @@ int32_t spms_ring_pub_create(spms_ring **out, const char *name, struct spms_ring
     spms_ring *p = (spms_ring *)calloc(1, sizeof(spms_ring));
     if (!p)
         return -1;
-
     size_t msg_entries = 1 << 11;
     if (config && config->msg_entries != 0)
         msg_entries = config->msg_entries;
-    if ((ret = spms_ring_msg_ring_init(&p->msg_ring, name, msg_entries, flags | O_CREAT)) < 0)
+    int32_t shmem_flags = SPMS_RING_SHMEM_FLAG_CREATE;
+    if (flags & SPMR_RING_FLAG_PERSISTENT)
+        shmem_flags |= SPMS_RING_SHMEM_FLAG_PERSISTENT;
+    if ((ret = spms_ring_msg_ring_init(&p->msg_ring, name, msg_entries, shmem_flags)) < 0)
     {
         free(p);
         return ret;
@@ -215,7 +237,7 @@ int32_t spms_ring_pub_create(spms_ring **out, const char *name, struct spms_ring
     size_t buf_length = 1 << 22;
     if (config && config->buf_length != 0)
         buf_length = config->buf_length;
-    if ((ret = spms_ring_buf_ring_init(&p->buf_ring, name, buf_length, flags | O_CREAT)) < 0)
+    if ((ret = spms_ring_buf_ring_init(&p->buf_ring, name, buf_length, shmem_flags)) < 0)
     {
         spms_ring_msg_ring_uninit(&p->msg_ring);
         free(p);

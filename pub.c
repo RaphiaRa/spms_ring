@@ -42,4 +42,5 @@ int main()
     }
     printf("Stopping...\n");
     spms_ring_free(ring);
+    return 0;
 }

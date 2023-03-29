@@ -12,6 +12,8 @@ struct spms_ring_config
     size_t msg_entries;
 };
 
+#define SPMR_RING_FLAG_PERSISTENT 0x01
+
 /** Creators and deleters **/
 
 int32_t spms_ring_pub_create(spms_ring **ring, const char *name, struct spms_ring_config *config, int32_t flags);
