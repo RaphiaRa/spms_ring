@@ -1,4 +1,4 @@
-#include "spms_ring.h"
+#include "spms.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -27,20 +27,20 @@ void sigint_handler(int sig)
 int main()
 {
     signal(SIGINT, sigint_handler);
-    spms_ring *ring;
-    if (spms_ring_pub_create(&ring, "test_ring", NULL, 0) != 0)
+    spms *ring;
+    if (spms_pub_create(&ring, "test_ring", NULL, 0) != 0)
     {
-        printf("spms_ring_pub_create failed\n");
+        printf("spms_pub_create failed\n");
         return -1;
     }
     while(!stop)
     {
         char buf[1024];
         uint64_t ts = get_time(buf, sizeof(buf));
-        spms_ring_write_msg_with_ts(ring, buf, strlen(buf), ts);
+        spms_write_msg_with_ts(ring, buf, strlen(buf), ts);
         sleep(1);
     }
     printf("Stopping...\n");
-    spms_ring_free(ring);
+    spms_free(ring);
     return 0;
 }
