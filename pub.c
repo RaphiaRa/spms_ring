@@ -27,8 +27,8 @@ void sigint_handler(int sig)
 int main()
 {
     signal(SIGINT, sigint_handler);
-    spms *ring;
-    if (spms_pub_create(&ring, "test_ring", NULL, 0) != 0)
+    spms_pub *pub;
+    if (spms_pub_create(&pub, "test_ring", NULL, SPMS_FLAG_PERSISTENT) != 0)
     {
         printf("spms_pub_create failed\n");
         return -1;
@@ -37,10 +37,10 @@ int main()
     {
         char buf[1024];
         uint64_t ts = get_time(buf, sizeof(buf));
-        spms_write_msg_with_ts(ring, buf, strlen(buf), ts);
+        spms_pub_write_msg_with_ts(pub, buf, strlen(buf), ts);
         sleep(1);
     }
     printf("Stopping...\n");
-    spms_free(ring);
+    spms_pub_free(pub);
     return 0;
 }
