@@ -33,11 +33,19 @@ int main()
         printf("spms_pub_create failed\n");
         return -1;
     }
+    int idx = 0;
     while(!stop)
     {
+        char time_buf[64];
+        uint64_t ts = get_time(time_buf, sizeof(time_buf));
         char buf[1024];
-        uint64_t ts = get_time(buf, sizeof(buf));
-        spms_pub_write_msg_with_ts(pub, buf, strlen(buf), ts);
+        int8_t is_key = (++idx % 10 == 0);
+        if (is_key)
+            sprintf(buf, "This is a key message");
+        else
+            sprintf(buf, "Msg: %s", time_buf);
+        struct spms_msg_info info = {is_key, 0, ts};
+        spms_pub_write_msg_with_info(pub, buf, strlen(buf), &info);
         sleep(1);
     }
     printf("Stopping...\n");
