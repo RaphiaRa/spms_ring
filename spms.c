@@ -428,6 +428,12 @@ int32_t spms_sub_set_nonblocking(spms_sub *sub, int8_t nonblocking)
     return 0;
 }
 
+int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count)
+{
+    *count = sub->dropped;
+    return 0;
+}
+
 int32_t spms_sub_pos_rewind(spms_sub *ring)
 {
     uint32_t tail;
@@ -525,6 +531,7 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
             ts.tv_nsec = (timeout_ms - seconds * 1000) * 1000000;
             ts.tv_sec = seconds;
             syscall(SYS_futex, ring->msg_ring.tail, FUTEX_WAIT, tail, &ts);
+            timeout_ms = 0; // don't wait again
             continue;
         }
 

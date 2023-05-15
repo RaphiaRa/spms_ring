@@ -38,6 +38,8 @@ int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t len, uint32_t timeo
 
 /** Control API **/
 
+int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count);
+
 int32_t spms_sub_set_nonblocking(spms_sub *sub, int8_t nonblocking);
 
 /** spms_sub_pos_rewind
