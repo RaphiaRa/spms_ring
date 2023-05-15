@@ -13,6 +13,13 @@ struct spms_config
     size_t msg_entries;
 };
 
+struct spms_msg_info
+{
+    int8_t is_key;
+    int8_t is_nil;
+    uint64_t ts;
+};
+
 #define SPMS_FLAG_PERSISTENT 0x01
 
 /** Constructors and destructors **/
@@ -25,7 +32,7 @@ void spms_sub_free(spms_sub *ring);
 /** Basic read/write API **/
 
 int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len);
-int32_t spms_pub_write_msg_with_ts(spms_pub *ring, const void *addr, size_t len, uint64_t ts);
+int32_t spms_pub_write_msg_with_info(spms_pub *ring, const void *addr, size_t len, struct spms_msg_info *info);
 int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t len);
 
 /** Control API **/
@@ -57,10 +64,18 @@ int32_t spms_sub_get_latest_ts(spms_sub *sub, uint64_t *ts);
 /** spms_sub_get_latest_pos
  * @brief Get the position of the latest msg in the ring
  * @param sub The subscriber
- * @param pos The position of the latest msg
+ * @param pos (out) The position of the latest msg
  * @return 0 on success, -1 on failure
  */
 int32_t spms_sub_get_latest_pos(spms_sub *sub, uint32_t *pos);
+
+/** spms_sub_get_latest_key_pos
+ * @brief Get the position of the latest key msg in the ring
+ * @param sub The subscriber
+ * @param pos (out) The position of the latest key msg
+ * @return 0 on success, -1 on failure
+ */
+int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos);
 
 /** spms_sub_get_pos
  * @brief Get the current read position of the subscriber
@@ -81,7 +96,7 @@ int32_t spms_sub_set_pos(spms_sub *sub, uint32_t pos);
 /** Zero copy API **/
 
 int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len);
-int32_t spms_pub_flush_write_buf(spms_pub *ring, void *addr, size_t len, uint64_t ts);
+int32_t spms_pub_flush_write_buf_with_info(spms_pub *ring, void *addr, size_t len, struct spms_msg_info *info);
 
 int32_t spms_sub_get_read_buf(spms_sub *ring, const void **addr, size_t *len);
 int32_t spms_sub_finalize_read(spms_sub *ring, int32_t ver);
