@@ -10,6 +10,8 @@
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
+#include <linux/futex.h>
 
 #define SPMS_MSG_RING_HEADER_OFFSET 128
 #define SPMS_BUF_RING_HEADER_OFFSET 128
@@ -239,6 +241,7 @@ struct spms_pub
 {
     struct spms_msg_ring msg_ring;
     struct spms_buf_ring buf_ring;
+    int8_t nonblocking;
 };
 
 /** spms_pub private functions */
@@ -286,6 +289,8 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
         __atomic_store(ring->msg_ring.last_key, &tail, __ATOMIC_RELAXED);
     ++tail;
     __atomic_store(ring->msg_ring.tail, &tail, __ATOMIC_RELEASE);
+    if (!ring->nonblocking)
+        syscall(SYS_futex, ring->msg_ring.tail, FUTEX_WAKE, 1, NULL);
 }
 
 /** spms_pub public interface **/
@@ -296,6 +301,7 @@ int32_t spms_pub_create(spms_pub **out, const char *name, struct spms_config *co
     spms_pub *p = (spms_pub *)calloc(1, sizeof(spms_pub));
     if (!p)
         return -1;
+    p->nonblocking = flags & SPMS_FLAG_NONBLOCKING;
     size_t msg_entries = 1 << 11;
     if (config && config->msg_entries != 0)
         msg_entries = config->msg_entries;
@@ -381,6 +387,7 @@ struct spms_sub
     uint32_t head;
     uint32_t dropped;
     uint32_t safe_zone;
+    int8_t nonblocking;
 };
 
 int32_t spms_sub_create(spms_sub **out, const char *name)
@@ -413,6 +420,12 @@ void spms_sub_free(spms_sub *ring)
     spms_buf_ring_uninit(&ring->buf_ring);
     spms_msg_ring_uninit(&ring->msg_ring);
     free(ring);
+}
+
+int32_t spms_sub_set_nonblocking(spms_sub *sub, int8_t nonblocking)
+{
+    sub->nonblocking = nonblocking;
+    return 0;
 }
 
 int32_t spms_sub_pos_rewind(spms_sub *ring)
@@ -482,33 +495,46 @@ int32_t spms_sub_set_pos(spms_sub *ring, uint32_t pos)
     return 0;
 }
 
-int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len)
+int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len, uint32_t timeout_ms)
 {
-    uint32_t tail, idx, len;
-    uint8_t ver;
-    uint64_t offset;
-    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
-    if (tail - ring->head > ring->safe_zone) // ensure safe zone
+    while (1)
     {
-        ring->dropped += tail - ring->head - ring->safe_zone > 0 ? tail - ring->head - ring->safe_zone : 0;
-        ring->head = tail - ring->safe_zone;
-    }
-    struct spms_msg *msg = NULL;
+        uint32_t tail, idx, len;
+        uint8_t ver;
+        uint64_t offset;
+        __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
+        if (tail - ring->head > ring->safe_zone) // ensure safe zone
+        {
+            ring->dropped += tail - ring->head - ring->safe_zone > 0 ? tail - ring->head - ring->safe_zone : 0;
+            ring->head = tail - ring->safe_zone;
+        }
+        struct spms_msg *msg = NULL;
 
-    // skip nil packets
-    while (ring->head < tail && (msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask])->nil != 0)
-    {
-        ++ring->head;
-        ++ring->dropped;
+        // skip nil packets
+        while (ring->head < tail && (msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask])->nil != 0)
+        {
+            ++ring->head;
+            ++ring->dropped;
+        }
+        if (ring->head == tail)
+        {
+            if (ring->nonblocking || timeout_ms == 0)
+                return -1;
+            struct timespec ts;
+            uint32_t seconds = timeout_ms / 1000;
+            ts.tv_nsec = (timeout_ms - seconds * 1000) * 1000000;
+            ts.tv_sec = seconds;
+            syscall(SYS_futex, ring->msg_ring.tail, FUTEX_WAIT, tail, &ts);
+            continue;
+        }
+
+        __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
+        __atomic_load(&msg->offset, &offset, __ATOMIC_RELAXED);
+        __atomic_load(&msg->len, &len, __ATOMIC_RELAXED);
+        *out_addr = (uint8_t *)ring->buf_ring.buf + offset;
+        *out_len = len;
+        return ver;
     }
-    if (ring->head == tail)
-        return -1;
-    __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
-    __atomic_load(&msg->offset, &offset, __ATOMIC_RELAXED);
-    __atomic_load(&msg->len, &len, __ATOMIC_RELAXED);
-    *out_addr = (uint8_t *)ring->buf_ring.buf + offset;
-    *out_len = len;
-    return ver;
 }
 
 int32_t spms_sub_finalize_read_buf(spms_sub *ring, int32_t version)
@@ -516,7 +542,7 @@ int32_t spms_sub_finalize_read_buf(spms_sub *ring, int32_t version)
     struct spms_msg *msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask];
     uint8_t ver = 0;
     uint32_t tail = 0;
-    
+
     // we don't really need the tail, but we need to sync with the writer
     __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
     __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
@@ -524,13 +550,13 @@ int32_t spms_sub_finalize_read_buf(spms_sub *ring, int32_t version)
     return ver == version ? 0 : -1;
 }
 
-int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t len)
+int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t len, uint32_t timeout_ms)
 {
     while (1)
     {
         const void *ptr = NULL;
         size_t ptr_len = 0;
-        int32_t ver = spms_sub_get_read_buf(ring, &ptr, &ptr_len);
+        int32_t ver = spms_sub_get_read_buf(ring, &ptr, &ptr_len, timeout_ms);
         if (ver < 0 || ptr_len > len)
             return -1;
 

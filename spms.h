@@ -21,6 +21,7 @@ struct spms_msg_info
 };
 
 #define SPMS_FLAG_PERSISTENT 0x01
+#define SPMS_FLAG_NONBLOCKING 0x02
 
 /** Constructors and destructors **/
 
@@ -33,9 +34,11 @@ void spms_sub_free(spms_sub *ring);
 
 int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len);
 int32_t spms_pub_write_msg_with_info(spms_pub *ring, const void *addr, size_t len, struct spms_msg_info *info);
-int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t len);
+int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t len, uint32_t timeout_ms);
 
 /** Control API **/
+
+int32_t spms_sub_set_nonblocking(spms_sub *sub, int8_t nonblocking);
 
 /** spms_sub_pos_rewind
  * @brief Move the read position to the latest msg in the ring
@@ -98,7 +101,7 @@ int32_t spms_sub_set_pos(spms_sub *sub, uint32_t pos);
 int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len);
 int32_t spms_pub_flush_write_buf_with_info(spms_pub *ring, void *addr, size_t len, struct spms_msg_info *info);
 
-int32_t spms_sub_get_read_buf(spms_sub *ring, const void **addr, size_t *len);
+int32_t spms_sub_get_read_buf(spms_sub *ring, const void **addr, size_t *len, uint32_t timeout_ms);
 int32_t spms_sub_finalize_read(spms_sub *ring, int32_t ver);
 
 #endif

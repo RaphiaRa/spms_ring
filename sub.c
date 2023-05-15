@@ -34,9 +34,8 @@ int main()
     {
         char buf[1024];
         int64_t len = 0;
-        if ((len = spms_sub_read_msg(sub, buf, sizeof(buf))) > 0)
+        if ((len = spms_sub_read_msg(sub, buf, sizeof(buf), 1000)) > 0)
             printf("Msg: %.*s\n", (int)len, buf);
-        usleep(10000);
     }
     printf("Stopping...\n");
     spms_sub_free(sub);
