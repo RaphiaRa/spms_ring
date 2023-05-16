@@ -11,7 +11,22 @@
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
+
+#ifdef __linux__
+#define CV_USE_FUTEX 1
+#elif __APPLE__
+#define CV_USE_ULOCK 1
+#endif
+
+#ifdef CV_USE_FUTEX
 #include <linux/futex.h>
+#elif CV_USE_ULOCK
+extern int __ulock_wait(uint32_t operation, void *addr, uint64_t value,
+                        uint32_t timeout); /* timeout is specified in microseconds */
+extern int __ulock_wait2(uint32_t operation, void *addr, uint64_t value,
+                         uint64_t timeout, uint64_t value2);
+extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
+#endif
 
 #define SPMS_MSG_RING_HEADER_OFFSET 128
 #define SPMS_BUF_RING_HEADER_OFFSET 128
@@ -33,40 +48,38 @@ typedef struct spms_shmem
 static int32_t spms_shmem_init(spms_shmem *shmem, const char *name, size_t len, int32_t flags)
 {
     int32_t shm_flags = 0;
+
     if (flags & SPMS_SHMEM_FLAG_CREATE)
     {
         shm_flags |= O_CREAT;
         shm_flags |= O_EXCL;
     }
     int32_t fd = shm_open(name, shm_flags | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd != -1 && (flags & SPMS_SHMEM_FLAG_CREATE))
+    {
+        if (ftruncate(fd, len) == -1)
+            goto err;
+    }
     if (fd == -1)
     {
         if (errno != EEXIST)
-            return -1;
+            goto err;
         shm_flags &= ~O_CREAT;
         fd = shm_open(name, shm_flags | O_RDWR, S_IRUSR | S_IWUSR);
         if (fd == -1)
-            return -1;
-    }
-    if (flags & SPMS_SHMEM_FLAG_CREATE)
-    {
-        if (ftruncate(fd, len) == -1)
-        {
-            close(fd);
-            return -1;
-        }
+            goto err;
     }
     else
     {
-        len = lseek(fd, 0, SEEK_END);
+        struct stat st;
+        if (fstat(fd, &st) == -1)
+            goto err;
+        len = st.st_size;
     }
     void *seg = mmap(NULL, len, PROT_READ | PROT_WRITE,
                      MAP_SHARED, fd, 0);
     if (seg == MAP_FAILED)
-    {
-        close(fd);
-        return -1;
-    }
+        goto err;
 
     snprintf(shmem->name, sizeof(shmem->name), "%s", name);
     shmem->flags = flags;
@@ -74,6 +87,10 @@ static int32_t spms_shmem_init(spms_shmem *shmem, const char *name, size_t len, 
     shmem->addr = seg;
     shmem->fd = fd;
     return (shm_flags & O_CREAT ? 1 : 0);
+err:
+    if (fd != -1)
+        close(fd);
+    return -1;
 }
 
 static void *spms_shmem_addr(spms_shmem *shmem)
@@ -113,7 +130,7 @@ static void spms_msg_update(struct spms_msg *msg)
 
 static void spms_msg_release(struct spms_msg *msg)
 {
-    uint8_t nil = 0;
+    int8_t nil = 0;
     uint32_t len = 0;
     uint64_t ts = 0;
     uint64_t offset = 0;
@@ -290,7 +307,13 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
     ++tail;
     __atomic_store(ring->msg_ring.tail, &tail, __ATOMIC_RELEASE);
     if (!ring->nonblocking)
-        syscall(SYS_futex, ring->msg_ring.tail, FUTEX_WAKE, 1, NULL);
+    {
+#ifdef CV_USE_FUTEX
+        syscall(SYS_futex, ring->msg_ring.tail, FUTEX_WAKE, INT_MAX, NULL);
+#elif CV_USE_ULOCK
+        __ulock_wake(0x00000100, ring->msg_ring.tail, 0);
+#endif
+    }
 }
 
 /** spms_pub public interface **/
@@ -526,11 +549,15 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         {
             if (ring->nonblocking || timeout_ms == 0)
                 return -1;
+#ifdef CV_USE_FUTEX
             struct timespec ts;
             uint32_t seconds = timeout_ms / 1000;
             ts.tv_nsec = (timeout_ms - seconds * 1000) * 1000000;
             ts.tv_sec = seconds;
             syscall(SYS_futex, ring->msg_ring.tail, FUTEX_WAIT, tail, &ts);
+#elif CV_USE_ULOCK
+            __ulock_wait(1, ring->msg_ring.tail, tail, timeout_ms * 1000);
+#endif
             timeout_ms = 0; // don't wait again
             continue;
         }
