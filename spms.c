@@ -115,7 +115,8 @@ static void spms_shmem_uninit(spms_shmem *shmem)
 
 struct spms_msg
 {
-    int8_t nil;
+    int8_t is_nil;
+    int8_t is_key;
     uint8_t ver;
     uint32_t len;
     uint64_t ts;
@@ -130,11 +131,13 @@ static void spms_msg_update(struct spms_msg *msg)
 
 static void spms_msg_release(struct spms_msg *msg)
 {
-    int8_t nil = 0;
+    int8_t is_nil = 0;
+    int8_t is_key = 0;
     uint32_t len = 0;
     uint64_t ts = 0;
     uint64_t offset = 0;
-    __atomic_store(&msg->nil, &nil, __ATOMIC_RELAXED);
+    __atomic_store(&msg->is_nil, &is_nil, __ATOMIC_RELAXED);
+    __atomic_store(&msg->is_key, &is_key, __ATOMIC_RELAXED);
     __atomic_store(&msg->len, &len, __ATOMIC_RELAXED);
     __atomic_store(&msg->ts, &ts, __ATOMIC_RELAXED);
     __atomic_store(&msg->offset, &offset, __ATOMIC_RELAXED);
@@ -301,7 +304,8 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
     msg->offset = offset;
     msg->len = (uint32_t)len;
     msg->ts = info->ts;
-    msg->nil = info->is_nil;
+    msg->is_nil = info->is_nil;
+    msg->is_key = info->is_key;
     if (info->is_key)
         __atomic_store(ring->msg_ring.last_key, &tail, __ATOMIC_RELAXED);
     ++tail;
@@ -534,16 +538,16 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
         if (tail - ring->head > ring->safe_zone) // ensure safe zone
         {
-            ring->dropped += tail - ring->head - ring->safe_zone > 0 ? tail - ring->head - ring->safe_zone : 0;
-            ring->head = tail - ring->safe_zone;
+            uint32_t shift = (tail - ring->head) - ring->safe_zone;
+            ring->dropped += shift;
+            ring->head += shift;
         }
         struct spms_msg *msg = NULL;
 
         // skip nil packets
-        while (ring->head < tail && (msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask])->nil != 0)
+        while (ring->head < tail && (msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask])->is_nil != 0)
         {
             ++ring->head;
-            ++ring->dropped;
         }
         if (ring->head == tail)
         {
@@ -581,21 +585,24 @@ int32_t spms_sub_finalize_read_buf(spms_sub *ring, int32_t version)
     __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
     __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
     ++ring->head;
-    return ver == version ? 0 : -1;
+    return (int32_t)ver == version ? 0 : -1;
 }
 
-int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t len, uint32_t timeout_ms)
+int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, uint32_t timeout_ms)
 {
     while (1)
     {
         const void *ptr = NULL;
         size_t ptr_len = 0;
         int32_t ver = spms_sub_get_read_buf(ring, &ptr, &ptr_len, timeout_ms);
-        if (ver < 0 || ptr_len > len)
+        if (ver < 0 || ptr_len > *len)
             return -1;
 
         memcpy(addr, ptr, ptr_len);
         if (spms_sub_finalize_read_buf(ring, ver) == 0)
-            return ptr_len;
+        {
+            *len = ptr_len;
+            return 0;
+        }
     }
 }

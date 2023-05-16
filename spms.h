@@ -34,7 +34,7 @@ void spms_sub_free(spms_sub *ring);
 
 int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len);
 int32_t spms_pub_write_msg_with_info(spms_pub *ring, const void *addr, size_t len, struct spms_msg_info *info);
-int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t len, uint32_t timeout_ms);
+int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, uint32_t timeout_ms);
 
 /** Control API **/
 
