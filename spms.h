@@ -53,9 +53,9 @@ int32_t spms_pub_write_msg_with_info(spms_pub *pub, const void *addr, size_t len
 /** spms_sub_read_msg
  * @brief Read a message from the ring buffer. If the ring is empty, this function will block
  * until a message is available or the timeout expires. On success, the message is guaranteed to be read completely.
- * @param sub The subscriber instance
- * @param addr The address to read the message into
- * @param len The length of the message read
+ * @param sub The subscriber
+ * @param addr The address to the buffer to read the message into
+ * @param len (in/out) The length of the buffer addr points to (in), and the length of the message that was read (out)
  * @param timeout_ms The timeout in milliseconds.
  * @return 0 on success, -1 on failure
  */
@@ -77,7 +77,7 @@ int32_t spms_sub_pos_rewind(spms_sub *sub);
 /** spms_sub_get_pos_by_ts
  * @brief Get the position of the first msg with a timestamp >= ts
  * @param sub The subscriber
- * @param pos The position of the msg
+ * @param pos (out) The position of the msg at or after ts
  * @param ts The timestamp to search for
  * @return 0 on success, -1 on failure
  */
@@ -86,7 +86,7 @@ int32_t spms_sub_get_pos_by_ts(spms_sub *sub, uint32_t *pos, uint64_t ts);
 /** spms_sub_get_latest_ts
  * @brief Get the timestamp of the latest msg in the ring
  * @param sub The subscriber
- * @param ts The timestamp of the latest msg
+ * @param ts (out) The timestamp of the latest msg
  * @return 0 on success, -1 on failure
  */
 int32_t spms_sub_get_latest_ts(spms_sub *sub, uint64_t *ts);
@@ -110,7 +110,7 @@ int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos);
 /** spms_sub_get_pos
  * @brief Get the current read position of the subscriber
  * @param sub The subscriber
- * @param pos The current read position
+ * @param pos (out) The current read position
  * @return 0 on success, -1 on failure
  */
 int32_t spms_sub_get_pos(spms_sub *sub, uint32_t *pos);
