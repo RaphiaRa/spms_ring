@@ -78,7 +78,7 @@ static int test_read()
     {
         char buf[128 * 1024];
         size_t len = sizeof(buf);
-        while (spms_sub_read_msg(sub, buf, &len, 0) == -1)
+        while (spms_sub_read_msg(sub, buf, &len, 10) == -1)
         {
             uint64_t dropped = 0;
             spms_sub_get_dropped_count(sub, &dropped);
@@ -87,7 +87,6 @@ static int test_read()
                 spms_sub_free(sub);
                 return 0;
             }
-            usleep(10);
         }
 
         for (int j = 0; j < len; j++)
