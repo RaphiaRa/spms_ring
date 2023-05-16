@@ -32,9 +32,34 @@ void spms_sub_free(spms_sub *ring);
 
 /** Basic read/write API **/
 
-int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len);
-int32_t spms_pub_write_msg_with_info(spms_pub *ring, const void *addr, size_t len, struct spms_msg_info *info);
-int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, uint32_t timeout_ms);
+/** spms_pub_write_msg
+ * @brief Write a message to the ring buffer, overwriting the oldest message
+ * if the ring is full. On success, the message is guaranteed to be written completely.
+ * @param pub The publisher to write to
+ * @param addr The address of the message to write
+ * @param len The length of the message to write
+ * @return 0 on success, -1 on failure
+ */
+int32_t spms_pub_write_msg(spms_pub *pub, const void *addr, size_t len);
+
+/** spms_pub_write_msg_with_info
+ * @brief Similar to spms_pub_write_msg, but also allows the user to specify
+ * additional info about the message, such as whether it is a key message (Like a keyframe in a video)
+ * and the timestamp of the message.
+ * @return 0 on success, -1 on failure
+ */
+int32_t spms_pub_write_msg_with_info(spms_pub *pub, const void *addr, size_t len, struct spms_msg_info *info);
+
+/** spms_sub_read_msg
+ * @brief Read a message from the ring buffer. If the ring is empty, this function will block
+ * until a message is available or the timeout expires. On success, the message is guaranteed to be read completely.
+ * @param sub The subscriber instance
+ * @param addr The address to read the message into
+ * @param len The length of the message read
+ * @param timeout_ms The timeout in milliseconds.
+ * @return 0 on success, -1 on failure
+ */
+int32_t spms_sub_read_msg(spms_sub *sub, void *addr, size_t *len, uint32_t timeout_ms);
 
 /** Control API **/
 
