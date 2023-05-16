@@ -20,6 +20,7 @@
 
 #ifdef CV_USE_FUTEX
 #include <linux/futex.h>
+#include <limits.h>
 #elif CV_USE_ULOCK
 extern int __ulock_wait(uint32_t operation, void *addr, uint64_t value,
                         uint32_t timeout); /* timeout is specified in microseconds */
