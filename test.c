@@ -91,14 +91,7 @@ static int test_read()
         }
 
         for (int j = 0; j < len; j++)
-        {
-            if (buf[j] != test_sequence[j % sizeof(test_sequence)])
-            {
-                printf("test failed at %d, %d, %zu\n", i, j, len);
-                printf("Buffer: %.*s\n", 32, &buf[j-16]);
-                return -1;
-            }
-        }
+            TEST(buf[j] == test_sequence[j % sizeof(test_sequence)]);
         ++count;
     }
     spms_sub_free(sub);
@@ -111,7 +104,7 @@ static void *test_read_thread(void *result)
     return NULL;
 }
 
-static int test_spms_read_write()
+static int test_spms_read_write_consistency()
 {
     pthread_t write_thread;
     pthread_t read_threads[4];
@@ -137,7 +130,7 @@ int main()
 {
     TEST(test_spms_pub_ctor_dtor() == 0);
     TEST(test_spms_sub_ctor_dtor() == 0);
-    TEST(test_spms_read_write() == 0);
+    TEST(test_spms_read_write_consistency() == 0);
     printf("All tests passed\n");
     return 0;
 }
