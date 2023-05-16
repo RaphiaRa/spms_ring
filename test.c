@@ -70,7 +70,7 @@ static int test_read()
 {
     spms_sub *sub;
     TEST(spms_sub_create(&sub, "spms_ring_unit_test") == 0);
-    uint32_t pos;
+    uint32_t pos = 0;
     TEST(spms_sub_get_latest_pos(sub, &pos) == 0);
     spms_sub_set_pos(sub, pos);
     size_t count = pos;
@@ -83,12 +83,22 @@ static int test_read()
             uint64_t dropped = 0;
             spms_sub_get_dropped_count(sub, &dropped);
             if (count + dropped == test_packet_count)
-                break;
+            {
+                spms_sub_free(sub);
+                return 0;
+            }
             usleep(10);
         }
 
         for (int j = 0; j < len; j++)
-            TEST(buf[j] == test_sequence[j % sizeof(test_sequence)]);
+        {
+            if (buf[j] != test_sequence[j % sizeof(test_sequence)])
+            {
+                printf("test failed at %d, %d, %zu\n", i, j, len);
+                printf("Buffer: %.*s\n", 32, &buf[j-16]);
+                return -1;
+            }
+        }
         ++count;
     }
     spms_sub_free(sub);
