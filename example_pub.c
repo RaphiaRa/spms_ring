@@ -17,7 +17,6 @@ uint64_t get_time(char *s, size_t max)
 }
 
 static int stop = 0;
-// Catch SIGINT
 void sigint_handler(int sig)
 {
     (void)sig;

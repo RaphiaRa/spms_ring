@@ -5,7 +5,6 @@
 #include <signal.h>
 
 static int stop = 0;
-// Catch SIGINT
 void sigint_handler(int sig)
 {
     (void)sig;
