@@ -543,10 +543,9 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
             ring->dropped += shift;
             ring->head += shift;
         }
-        struct spms_msg *msg = NULL;
 
         // skip nil packets
-        while (ring->head < tail && (msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask])->is_nil != 0)
+        while (ring->head < tail && (&ring->msg_ring.buf[ring->head & *ring->msg_ring.mask])->is_nil != 0)
         {
             ++ring->head;
         }
@@ -566,7 +565,7 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
             timeout_ms = 0; // don't wait again
             continue;
         }
-
+        struct spms_msg *msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask];
         __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
         __atomic_load(&msg->offset, &offset, __ATOMIC_RELAXED);
         __atomic_load(&msg->len, &len, __ATOMIC_RELAXED);
