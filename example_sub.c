@@ -17,7 +17,7 @@ int main()
     spms_sub *sub;
     if (spms_sub_create(&sub, "test_ring") != 0)
     {
-        printf("spms_sub_create failed\n");
+        printf("Failed to create subscriber\n");
         return -1;
     }
     uint64_t ts;
@@ -25,7 +25,7 @@ int main()
     uint32_t pos;
     if (spms_sub_get_latest_key_pos(sub, &pos) == -1)
     {
-        printf("spms_sub_get_latest_key_pos failed\n");
+        printf("Failed to get lates key position\n");
         return -1;
     }
     spms_sub_set_pos(sub, pos);

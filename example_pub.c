@@ -29,7 +29,7 @@ int main()
     spms_pub *pub;
     if (spms_pub_create(&pub, "test_ring", NULL, SPMS_FLAG_PERSISTENT) != 0)
     {
-        printf("spms_pub_create failed\n");
+        printf("Failed to create publisher\n");
         return -1;
     }
     int idx = 0;
