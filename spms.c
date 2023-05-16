@@ -23,9 +23,7 @@
 #include <limits.h>
 #elif CV_USE_ULOCK
 extern int __ulock_wait(uint32_t operation, void *addr, uint64_t value,
-                        uint32_t timeout); /* timeout is specified in microseconds */
-extern int __ulock_wait2(uint32_t operation, void *addr, uint64_t value,
-                         uint64_t timeout, uint64_t value2);
+                        uint32_t timeout);
 extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
 #endif
 
