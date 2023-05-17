@@ -11,7 +11,24 @@ struct spms_config
 {
     size_t buf_length;
     size_t msg_entries;
+    int8_t nonblocking;
 };
+
+/** spms_ring_needed_size
+ * @brief Get the amount of memory required to create a ring buffer with the given config
+ * @param config The config to use
+ * @return The amount of memory required to create a ring buffer with the given config
+ */
+uint64_t spms_ring_mem_needed_size(struct spms_config *config);
+
+/** spms_ring_init
+ * @brief Initialize a ring buffer in the given memory region
+ * @param mem The memory region to initialize the ring buffer in
+ * @param config The config to use
+ * @return 0 on success, -1 on failure
+ * @note The memory region must be at least spms_mem_needed_size(config) bytes long
+ */
+int32_t spms_ring_mem_init(void *mem, struct spms_config *config);
 
 struct spms_msg_info
 {
@@ -20,13 +37,9 @@ struct spms_msg_info
     uint64_t ts;
 };
 
-#define SPMS_FLAG_PERSISTENT 0x01
-#define SPMS_FLAG_NONBLOCKING 0x02
-
 /** Constructors and destructors **/
-
-int32_t spms_pub_create(spms_pub **ring, const char *name, struct spms_config *config, int32_t flags);
-int32_t spms_sub_create(spms_sub **ring, const char *name);
+int32_t spms_pub_create(spms_pub **ring, void *mem, struct spms_config *config);
+int32_t spms_sub_create(spms_sub **ring, void *mem);
 void spms_pub_free(spms_pub *ring);
 void spms_sub_free(spms_sub *ring);
 
@@ -64,8 +77,6 @@ int32_t spms_sub_read_msg(spms_sub *sub, void *addr, size_t *len, uint32_t timeo
 /** Control API **/
 
 int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count);
-
-int32_t spms_sub_set_nonblocking(spms_sub *sub, int8_t nonblocking);
 
 /** spms_sub_pos_rewind
  * @brief Move the read position to the latest msg in the ring

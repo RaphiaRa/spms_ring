@@ -17,14 +17,18 @@ static int test_spms_pub_ctor_dtor()
 {
     {
         spms_pub *pub;
-        TEST(spms_pub_create(&pub, "spms_ring_unit_test", NULL, 0) == 0);
+        void *buffer = calloc(spms_ring_mem_needed_size(NULL), 1);
+        TEST(spms_pub_create(&pub, buffer, NULL) == 0);
         spms_pub_free(pub);
+        free(buffer);
     }
     {
         spms_pub *pub;
-        struct spms_config config = {1024, 1024};
-        TEST(spms_pub_create(&pub, "spms_ring_unit_test", &config, 0) == 0);
+        struct spms_config config = {.buf_length = 1024, .msg_entries = 1024, .nonblocking = 0};
+        void *buffer = calloc(spms_ring_mem_needed_size(&config), 1);
+        TEST(spms_pub_create(&pub, buffer, &config) == 0);
         spms_pub_free(pub);
+        free(buffer);
     }
     return 0;
 }
@@ -33,18 +37,28 @@ static int test_spms_sub_ctor_dtor()
 {
     {
         spms_sub *sub;
-        TEST(spms_sub_create(&sub, "spms_ring_unit_test") != 0);
+        void *buffer = calloc(spms_ring_mem_needed_size(NULL), 1);
+        TEST(spms_sub_create(&sub, buffer) != 0);
+        free(buffer);
     }
     {
         spms_sub *sub;
         spms_pub *pub;
-        TEST(spms_pub_create(&pub, "spms_ring_unit_test", NULL, 0) == 0);
-        TEST(spms_sub_create(&sub, "spms_ring_unit_test") == 0);
+        void *buffer = calloc(spms_ring_mem_needed_size(NULL), 1);
+        TEST(spms_pub_create(&pub, buffer, NULL) == 0);
+        TEST(spms_sub_create(&sub, buffer) == 0);
         spms_sub_free(sub);
         spms_pub_free(pub);
+        free(buffer);
     }
     return 0;
 }
+
+struct read_thread_args
+{
+    void *buf;
+    int result;
+};
 
 static const unsigned char test_sequence[] = {'t', 'e', 's', 't', 's', 'e', 'q', 'u', 'e', 'n', 'c', 'e'};
 static const size_t test_blocks_per_msg[] = {1, 20, 256, 490, 1024, 2040, 5500};
@@ -66,10 +80,10 @@ static int test_write(spms_pub *pub)
     return 0;
 }
 
-static int test_read()
+static int test_read(void *buf)
 {
     spms_sub *sub;
-    TEST(spms_sub_create(&sub, "spms_ring_unit_test") == 0);
+    TEST(spms_sub_create(&sub, buf) == 0);
     uint32_t pos = 0;
     TEST(spms_sub_get_latest_pos(sub, &pos) == 0);
     spms_sub_set_pos(sub, pos);
@@ -97,9 +111,10 @@ static int test_read()
     return 0;
 }
 
-static void *test_read_thread(void *result)
+static void *test_read_thread(void *args)
 {
-    *(int *)result = test_read();
+    struct read_thread_args *a = args;
+    a->result = test_read(a->buf);
     return NULL;
 }
 
@@ -107,21 +122,26 @@ static int test_spms_read_write_consistency()
 {
     pthread_t write_thread;
     pthread_t read_threads[4];
-    int read_results[4] = {0};
+    struct read_thread_args args[4] = {0};
 
     spms_pub *pub;
-    TEST(spms_pub_create(&pub, "spms_ring_unit_test", NULL, 0) == 0);
+    void *buf = calloc(1, 4 * 1024 * 1024);
+    TEST(spms_pub_create(&pub, buf, NULL) == 0);
 
-    // start writers
+    // start readers
     for (int i = 0; i < 4; i++)
-        pthread_create(&read_threads[i], NULL, test_read_thread, &read_results[i]);
+    {
+        args[i].buf = buf;
+        pthread_create(&read_threads[i], NULL, test_read_thread, &args[i]);
+    }
 
     TEST(test_write(pub) == 0);
 
     for (int i = 0; i < 4; i++)
         pthread_join(read_threads[i], NULL);
     for (int i = 0; i < 4; i++)
-        TEST(read_results[i] == 0);
+        TEST(args[i].result == 0);
+    free(buf);
     return 0;
 }
 

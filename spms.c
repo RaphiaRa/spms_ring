@@ -1,6 +1,5 @@
 #include "spms.h"
 #include <stdlib.h>
-#include <sys/mman.h>
 #include <sys/stat.h> /* For mode constants */
 #include <sys/syscall.h>
 #include <sys/time.h>
@@ -11,6 +10,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
+#include <stdalign.h>
 
 #ifdef __linux__
 #define CV_USE_FUTEX 1
@@ -27,14 +27,18 @@ extern int __ulock_wait(uint32_t operation, void *addr, uint64_t value,
 extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
 #endif
 
-#define SPMS_MSG_RING_HEADER_OFFSET 128
-#define SPMS_BUF_RING_HEADER_OFFSET 128
+#define SPMS_RING_HEADER_LENGTH 128
+#define SPMS_MSG_RING_HEADER_LENGTH 128
+#define SPMS_BUF_RING_HEADER_LENGTH 128
+#define SPMS_INIT_CODE 0x00000001
+#define SPMS_MEM_FLAG_INIT 1 << 0
 
-#define SPMS_SHMEM_FLAG_CREATE 1
-#define SPMS_SHMEM_FLAG_PERSISTENT 2
-
+static struct spms_config g_default_config = {.buf_length = 1 << 20,
+                                              .msg_entries = 1 << 10,
+                                              .nonblocking = 0};
 /** spms_shmem **/
 
+/**
 typedef struct spms_shmem
 {
     char name[256];
@@ -109,6 +113,7 @@ static void spms_shmem_uninit(spms_shmem *shmem)
     if (shmem->flags & SPMS_SHMEM_FLAG_CREATE && !(shmem->flags & SPMS_SHMEM_FLAG_PERSISTENT))
         shm_unlink(shmem->name);
 }
+**/
 
 /** spms_msg **/
 
@@ -154,102 +159,128 @@ static uint8_t spms_msg_version(struct spms_msg *msg)
 
 typedef struct spms_msg_ring
 {
-    uint32_t *entries;
-    uint32_t *mask;
-    uint32_t *head;
-    uint32_t *tail;
-    uint32_t *last_key;
-    struct spms_msg *buf;
-    spms_shmem shmem;
+    uint32_t entries;
+    uint32_t mask;
+    uint32_t head;
+    uint32_t tail;
+    uint32_t last_key;
 } spms_msg_ring;
 
-static int32_t spms_msg_ring_init(spms_msg_ring *ring, const char *name, size_t size, int32_t flags)
+/** spms_msg_ring_mem functions **/
+
+static uint64_t spms_msg_ring_mem_size(size_t msg_count)
 {
-    char shmem_name[256];
-    int32_t ret = 0;
-    snprintf(shmem_name, sizeof(shmem_name), "%s-msg_ring", name);
-    size_t total_size = size > 0 ? size * sizeof(struct spms_msg) + SPMS_MSG_RING_HEADER_OFFSET : 0;
-    if ((ret = spms_shmem_init(&ring->shmem, shmem_name, total_size, flags)) < 0)
-        return ret;
-    void *ptr = spms_shmem_addr(&ring->shmem);
-    ring->entries = (uint32_t *)ptr;
-    ring->mask = (uint32_t *)ptr + 1;
-    ring->head = (uint32_t *)ptr + 2;
-    ring->tail = (uint32_t *)ptr + 3;
-    ring->last_key = (uint32_t *)ptr + 4;
-    ring->buf = (struct spms_msg *)((uint8_t *)ptr + SPMS_MSG_RING_HEADER_OFFSET);
-    if (ret == 1) // created
-    {
-        *ring->entries = size;
-        *ring->mask = *ring->entries - 1;
-        *ring->head = 0;
-        *ring->tail = 0;
-        *ring->last_key = 0;
-        memset(ring->buf, 0, size * sizeof(struct spms_msg));
-    }
-    return 0;
+    return msg_count * sizeof(struct spms_msg) + SPMS_MSG_RING_HEADER_LENGTH;
 }
 
-static void spms_msg_ring_uninit(spms_msg_ring *ring)
+static int32_t spms_msg_ring_mem_init(void *mem, size_t msg_count)
 {
-    spms_shmem_uninit(&ring->shmem);
+    // msg_count must be power of 2
+    if ((msg_count & (msg_count - 1)) != 0)
+        return -1;
+    spms_msg_ring *ring = (spms_msg_ring *)mem;
+    ring->entries = msg_count;
+    ring->mask = ring->entries - 1;
+    ring->head = 0;
+    ring->tail = 0;
+    ring->last_key = 0;
+    void *buf = (void *)((uintptr_t)mem + SPMS_MSG_RING_HEADER_LENGTH);
+    memset(buf, 0, msg_count * sizeof(struct spms_msg));
+    return 0;
 }
 
 /** spms_buf_ring **/
 
 typedef struct spms_buf_ring
 {
-    uint64_t *length;
-    uint64_t *mask;
-    uint64_t *head;
-    uint64_t *tail;
-    void *buf;
-    spms_shmem shmem;
+    uint64_t length;
+    uint64_t mask;
+    uint64_t head;
+    uint64_t tail;
 } spms_buf_ring;
 
-static int32_t spms_buf_ring_init(spms_buf_ring *ring, const char *name, size_t size, int32_t flags)
+/** spms_buf_ring_mem functions **/
+
+static uint64_t spms_buf_ring_mem_size(size_t size)
 {
-    char shmem_name[256];
-    int32_t ret = 0;
-    snprintf(shmem_name, sizeof(shmem_name), "%s-buf_ring", name);
-    size_t total_size = size > 0 ? size + SPMS_BUF_RING_HEADER_OFFSET : 0;
-    if ((ret = spms_shmem_init(&ring->shmem, shmem_name, total_size, flags)) < 0)
-        return ret;
-    void *ptr = spms_shmem_addr(&ring->shmem);
-    ring->length = (uint64_t *)ptr;
-    ring->mask = (uint64_t *)ptr + 1;
-    ring->head = (uint64_t *)ptr + 2;
-    ring->tail = (uint64_t *)ptr + 3;
-    ring->buf = (void *)((uint8_t *)ptr + SPMS_BUF_RING_HEADER_OFFSET);
-    if (ret == 1) // created
-    {
-        *ring->length = size;
-        *ring->mask = *ring->length - 1;
-        *ring->head = 0;
-        *ring->tail = 0;
-    }
+    return size + SPMS_BUF_RING_HEADER_LENGTH;
+}
+
+static int32_t spms_buf_ring_mem_init(void *mem, size_t size)
+{
+    // size must be power of 2
+    if ((size & (size - 1)) != 0)
+        return -1;
+    spms_buf_ring *ring = (spms_buf_ring *)mem;
+    ring->length = size;
+    ring->mask = ring->length - 1;
+    ring->head = 0;
+    ring->tail = 0;
     return 0;
 }
 
-static void spms_buf_ring_uninit(struct spms_buf_ring *ring)
-{
-    spms_shmem_uninit(&ring->shmem);
-}
+/** spms_buf_ring functions **/
 
 static void spms_buf_ring_release_buffer(struct spms_buf_ring *ring, uint64_t offset, uint32_t len)
 {
-    assert((*ring->head & *ring->mask) == offset && "Released buffer must match ring");
-    *ring->head += (uint64_t)len;
+    assert((ring->head & ring->mask) == offset && "Released buffer must match ring");
+    ring->head += (uint64_t)len;
 }
 
 static uint64_t spms_buf_ring_aquire_buffer(struct spms_buf_ring *ring, uint32_t *len)
 {
-    uint64_t avail = *ring->length - (*ring->tail - *ring->head);
-    uint64_t index = *ring->tail & *ring->mask;
-    uint64_t trail = *ring->length - index;
+    uint64_t avail = ring->length - (ring->tail - ring->head);
+    uint64_t index = ring->tail & ring->mask;
+    uint64_t trail = ring->length - index;
     uint64_t writeable = avail < trail ? avail : trail;
     *len = (uint32_t)((uint64_t)*len < writeable ? (uint64_t)*len : writeable);
     return index;
+}
+
+/** spms ring functions **/
+
+/** spms_ring public **/
+
+typedef struct spms_ring
+{
+    uint64_t init_code;
+    uint64_t msg_ring_offset;
+    uint64_t buf_ring_offset;
+    int8_t nonblocking;
+} spms_ring;
+
+uint64_t spms_ring_mem_needed_size(struct spms_config *config)
+{
+    if (config == NULL)
+        config = &g_default_config;
+
+    uint64_t msg_ring_size = spms_msg_ring_mem_size(config->msg_entries);
+    uint64_t buf_ring_size = spms_buf_ring_mem_size(config->buf_length);
+    return msg_ring_size + buf_ring_size + SPMS_BUF_RING_HEADER_LENGTH;
+}
+
+int32_t spms_ring_mem_init(void *mem, struct spms_config *config)
+{
+    if ((uintptr_t)mem % alignof(max_align_t) != 0)
+        return -1;
+
+    spms_ring *ring = (spms_ring *)mem;
+    if (ring->init_code == SPMS_INIT_CODE)
+        return 0;
+
+    if (config == NULL)
+        config = &g_default_config;
+
+    int32_t ret = 0;
+    ring->nonblocking = config->nonblocking;
+    ring->msg_ring_offset = SPMS_RING_HEADER_LENGTH;
+    ring->buf_ring_offset = ring->msg_ring_offset + spms_msg_ring_mem_size(config->msg_entries);
+    if ((ret = spms_msg_ring_mem_init((void *)((uint8_t *)mem + ring->msg_ring_offset), config->msg_entries)) != 0)
+        return ret;
+    if ((ret = spms_buf_ring_mem_init((void *)((uint8_t *)mem + ring->buf_ring_offset), config->buf_length)) != 0)
+        return ret;
+    ring->init_code = SPMS_INIT_CODE;
+    return 0;
 }
 
 /**
@@ -258,8 +289,10 @@ static uint64_t spms_buf_ring_aquire_buffer(struct spms_buf_ring *ring, uint32_t
 
 struct spms_pub
 {
-    struct spms_msg_ring msg_ring;
-    struct spms_buf_ring buf_ring;
+    spms_msg_ring *msg_ring;
+    struct spms_msg *msgs;
+    spms_buf_ring *buf_ring;
+    void *buf;
     int8_t nonblocking;
 };
 
@@ -267,23 +300,23 @@ struct spms_pub
 
 static void spms_pub_release_msg(spms_pub *ring, struct spms_msg *msg)
 {
-    spms_buf_ring_release_buffer(&ring->buf_ring, msg->offset, msg->len);
+    spms_buf_ring_release_buffer(ring->buf_ring, msg->offset, msg->len);
     spms_msg_release(msg);
 }
 
 static void spms_pub_release_msg_from_head(spms_pub *ring)
 {
     // don't need to use atomics here, we're the only ones modifying head
-    uint32_t index = *ring->msg_ring.head & *ring->msg_ring.mask;
-    spms_pub_release_msg(ring, &ring->msg_ring.buf[index]);
-    ++(*ring->msg_ring.head);
+    uint32_t index = ring->msg_ring->head & ring->msg_ring->mask;
+    spms_pub_release_msg(ring, &ring->msgs[index]);
+    ++(ring->msg_ring->head);
 }
 
 static void spms_pub_ensure_buffer_space(spms_pub *ring, size_t len)
 {
     uint32_t n = 0;
-    uint64_t capacity = *ring->buf_ring.length;
-    while (capacity - (*ring->buf_ring.tail - *ring->buf_ring.head) < len)
+    uint64_t capacity = ring->buf_ring->length;
+    while (capacity - (ring->buf_ring->tail - ring->buf_ring->head) < len)
     {
         spms_pub_release_msg_from_head(ring);
     }
@@ -291,64 +324,60 @@ static void spms_pub_ensure_buffer_space(spms_pub *ring, size_t len)
 
 static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size_t len, const struct spms_msg_info *info)
 {
-    uint32_t tail = *ring->msg_ring.tail;
-    uint32_t idx = tail & *ring->msg_ring.mask;
-    struct spms_msg *msg = &ring->msg_ring.buf[idx];
+    uint32_t tail = ring->msg_ring->tail;
+    uint32_t idx = tail & ring->msg_ring->mask;
+    struct spms_msg *msg = &ring->msgs[idx];
     if (msg->len)
     {
         spms_pub_release_msg(ring, msg);
     }
-    assert((*ring->buf_ring.tail & *ring->buf_ring.mask) == offset && "Flushed buffer must match ring");
-    *ring->buf_ring.tail += (uint64_t)len;
+    assert((ring->buf_ring->tail & ring->buf_ring->mask) == offset && "Flushed buffer must match ring");
+    ring->buf_ring->tail += (uint64_t)len;
     msg->offset = offset;
     msg->len = (uint32_t)len;
     msg->ts = info->ts;
     msg->is_nil = info->is_nil;
     msg->is_key = info->is_key;
     if (info->is_key)
-        __atomic_store(ring->msg_ring.last_key, &tail, __ATOMIC_RELAXED);
+        __atomic_store(&ring->msg_ring->last_key, &tail, __ATOMIC_RELAXED);
     ++tail;
-    __atomic_store(ring->msg_ring.tail, &tail, __ATOMIC_RELEASE);
+    __atomic_store(&ring->msg_ring->tail, &tail, __ATOMIC_RELEASE);
     if (!ring->nonblocking)
     {
 #ifdef CV_USE_FUTEX
-        syscall(SYS_futex, ring->msg_ring.tail, FUTEX_WAKE, INT_MAX, NULL);
+        syscall(SYS_futex, &ring->msg_ring.tail, FUTEX_WAKE, INT_MAX, NULL);
 #elif CV_USE_ULOCK
-        __ulock_wake(0x00000100, ring->msg_ring.tail, 0);
+        __ulock_wake(0x00000100, &ring->msg_ring->tail, 0);
 #endif
     }
 }
 
 /** spms_pub public interface **/
 
-int32_t spms_pub_create(spms_pub **out, const char *name, struct spms_config *config, int32_t flags)
+int32_t spms_pub_create(spms_pub **out, void *mem, struct spms_config *config)
 {
-    int32_t ret = 0;
+    if ((uintptr_t)mem % sizeof(max_align_t) != 0)
+        return -1;
+
     spms_pub *p = (spms_pub *)calloc(1, sizeof(spms_pub));
     if (!p)
         return -1;
-    p->nonblocking = flags & SPMS_FLAG_NONBLOCKING;
-    size_t msg_entries = 1 << 11;
-    if (config && config->msg_entries != 0)
-        msg_entries = config->msg_entries;
-    int32_t shmem_flags = SPMS_SHMEM_FLAG_CREATE;
-    if (flags & SPMS_FLAG_PERSISTENT)
-        shmem_flags |= SPMS_SHMEM_FLAG_PERSISTENT;
-    if ((ret = spms_msg_ring_init(&p->msg_ring, name, msg_entries, shmem_flags)) < 0)
-    {
-        free(p);
-        return ret;
-    }
 
-    size_t buf_length = 1 << 22;
-    if (config && config->buf_length != 0)
-        buf_length = config->buf_length;
-    if ((ret = spms_buf_ring_init(&p->buf_ring, name, buf_length, shmem_flags)) < 0)
+    spms_ring *ring = (spms_ring *)mem;
+    if (ring->init_code != SPMS_INIT_CODE) // first time initialization
     {
-        spms_msg_ring_uninit(&p->msg_ring);
-        free(p);
-        return ret;
+        int32_t ret = 0;
+        if ((ret = spms_ring_mem_init(mem, config)) < 0)
+        {
+            free(p);
+            return ret;
+        }
     }
+    p->nonblocking = ring->nonblocking;
+    p->msg_ring = (spms_msg_ring *)((uint8_t *)mem + ring->msg_ring_offset);
+    p->msgs = (struct spms_msg *)((uint8_t *)mem + ring->msg_ring_offset + SPMS_MSG_RING_HEADER_LENGTH);
+    p->buf_ring = (spms_buf_ring *)((uint8_t *)mem + ring->buf_ring_offset);
+    p->buf = (uint8_t *)mem + ring->buf_ring_offset + SPMS_BUF_RING_HEADER_LENGTH;
     *out = p;
     return 0;
 }
@@ -359,10 +388,10 @@ int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len)
     {
         spms_pub_ensure_buffer_space(ring, len);
         uint32_t buf_len = (uint32_t)len;
-        uint64_t offset = spms_buf_ring_aquire_buffer(&ring->buf_ring, &buf_len);
+        uint64_t offset = spms_buf_ring_aquire_buffer(ring->buf_ring, &buf_len);
         if (buf_len >= len) // got a suitable buffer
         {
-            *addr = (uint8_t *)ring->buf_ring.buf + offset;
+            *addr = (uint8_t *)ring->buf + offset;
             return 0;
         }
         struct spms_msg_info nil_info = {0, 1, 0};
@@ -375,7 +404,7 @@ int32_t spms_pub_flush_write_buf_with_info(spms_pub *ring, void *addr, size_t le
     struct spms_msg_info default_info = {0, 0, 0};
     if (!info)
         info = &default_info;
-    spms_pub_flush_write_buffer_ex(ring, (uint8_t *)addr - (uint8_t *)ring->buf_ring.buf, len, info);
+    spms_pub_flush_write_buffer_ex(ring, (uint8_t *)addr - (uint8_t *)ring->buf, len, info);
     return 0;
 }
 
@@ -397,8 +426,6 @@ int32_t spms_pub_write_msg_with_info(spms_pub *ring, const void *addr, size_t le
 
 void spms_pub_free(spms_pub *ring)
 {
-    spms_buf_ring_uninit(&ring->buf_ring);
-    spms_msg_ring_uninit(&ring->msg_ring);
     free(ring);
 }
 
@@ -408,34 +435,35 @@ void spms_pub_free(spms_pub *ring)
 
 struct spms_sub
 {
-    struct spms_msg_ring msg_ring;
-    struct spms_buf_ring buf_ring;
+    spms_msg_ring *msg_ring;
+    struct spms_msg *msgs;
+    spms_buf_ring *buf_ring;
+    void *buf;
     uint32_t head;
     uint32_t dropped;
     uint32_t safe_zone;
     int8_t nonblocking;
 };
 
-int32_t spms_sub_create(spms_sub **out, const char *name)
+int32_t spms_sub_create(spms_sub **out, void *mem)
 {
-    int32_t ret = 0;
+    if ((uintptr_t)mem % sizeof(max_align_t) != 0)
+        return -1;
+
+    spms_ring *ring = (spms_ring *)mem;
+    if (ring->init_code != SPMS_INIT_CODE) // not initlized
+        return -1;
+
     spms_sub *p = (spms_sub *)calloc(1, sizeof(spms_sub));
     if (!p)
         return -1;
 
-    if ((ret = spms_msg_ring_init(&p->msg_ring, name, 0, 0)) < 0)
-    {
-        free(p);
-        return ret;
-    }
-    p->safe_zone = *p->msg_ring.entries - *p->msg_ring.entries / 16;
-
-    if ((ret = spms_buf_ring_init(&p->buf_ring, name, 0, 0)) < 0)
-    {
-        spms_msg_ring_uninit(&p->msg_ring);
-        free(p);
-        return ret;
-    }
+    p->nonblocking = ring->nonblocking;
+    p->msg_ring = (spms_msg_ring *)((uint8_t *)mem + ring->msg_ring_offset);
+    p->msgs = (struct spms_msg *)((uint8_t *)mem + ring->msg_ring_offset + SPMS_MSG_RING_HEADER_LENGTH);
+    p->buf_ring = (spms_buf_ring *)((uint8_t *)mem + ring->buf_ring_offset);
+    p->buf = (struct spms_buf *)((uint8_t *)mem + ring->buf_ring_offset + SPMS_BUF_RING_HEADER_LENGTH);
+    p->safe_zone = p->msg_ring->entries - p->msg_ring->entries / 16;
     spms_sub_pos_rewind(p);
     *out = p;
     return 0;
@@ -443,15 +471,7 @@ int32_t spms_sub_create(spms_sub **out, const char *name)
 
 void spms_sub_free(spms_sub *ring)
 {
-    spms_buf_ring_uninit(&ring->buf_ring);
-    spms_msg_ring_uninit(&ring->msg_ring);
     free(ring);
-}
-
-int32_t spms_sub_set_nonblocking(spms_sub *sub, int8_t nonblocking)
-{
-    sub->nonblocking = nonblocking;
-    return 0;
 }
 
 int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count)
@@ -463,7 +483,7 @@ int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count)
 int32_t spms_sub_pos_rewind(spms_sub *ring)
 {
     uint32_t tail;
-    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_RELAXED);
+    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_RELAXED);
     ring->head = tail;
     return 0;
 }
@@ -471,12 +491,12 @@ int32_t spms_sub_pos_rewind(spms_sub *ring)
 int32_t spms_sub_get_pos_by_ts(spms_sub *ring, uint32_t *pos, uint64_t ts)
 {
     uint32_t head, tail;
-    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_RELAXED);
-    head = tail - *ring->msg_ring.entries;
+    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_RELAXED);
+    head = tail - ring->msg_ring->entries;
     while (head != tail)
     {
-        struct spms_msg *a = &ring->msg_ring.buf[(tail - 2) & *ring->msg_ring.mask];
-        struct spms_msg *b = &ring->msg_ring.buf[(tail - 1) & *ring->msg_ring.mask];
+        struct spms_msg *a = &ring->msgs[(tail - 2) & ring->msg_ring->mask];
+        struct spms_msg *b = &ring->msgs[(tail - 1) & ring->msg_ring->mask];
 
         if (a->ts <= ts && b->ts >= ts)
         {
@@ -491,8 +511,8 @@ int32_t spms_sub_get_pos_by_ts(spms_sub *ring, uint32_t *pos, uint64_t ts)
 int32_t spms_sub_get_latest_ts(spms_sub *ring, uint64_t *ts)
 {
     uint32_t tail;
-    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
-    struct spms_msg *msg = &ring->msg_ring.buf[(tail - 1) & *ring->msg_ring.mask];
+    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
+    struct spms_msg *msg = &ring->msgs[(tail - 1) & ring->msg_ring->mask];
     __atomic_load(&msg->ts, ts, __ATOMIC_RELAXED);
     return 0;
 }
@@ -500,7 +520,7 @@ int32_t spms_sub_get_latest_ts(spms_sub *ring, uint64_t *ts)
 int32_t spms_sub_get_latest_pos(spms_sub *ring, uint32_t *pos)
 {
     uint32_t tail;
-    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_RELAXED);
+    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_RELAXED);
     *pos = (tail - 1);
     return 0;
 }
@@ -508,8 +528,8 @@ int32_t spms_sub_get_latest_pos(spms_sub *ring, uint32_t *pos)
 int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos)
 {
     uint32_t tail;
-    __atomic_load(sub->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
-    __atomic_load(sub->msg_ring.last_key, pos, __ATOMIC_RELAXED);
+    __atomic_load(&sub->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
+    __atomic_load(&sub->msg_ring->last_key, pos, __ATOMIC_RELAXED);
     if (*pos >= tail)
         return -1;
     return 0;
@@ -534,7 +554,7 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         uint32_t tail, idx, len;
         uint8_t ver;
         uint64_t offset;
-        __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
+        __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
         if (tail - ring->head > ring->safe_zone) // ensure safe zone
         {
             uint32_t shift = (tail - ring->head) - ring->safe_zone;
@@ -543,7 +563,7 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         }
 
         // skip nil packets
-        while (ring->head < tail && (&ring->msg_ring.buf[ring->head & *ring->msg_ring.mask])->is_nil != 0)
+        while (ring->head < tail && (&ring->msgs[ring->head & ring->msg_ring->mask])->is_nil != 0)
         {
             ++ring->head;
         }
@@ -556,18 +576,18 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
             uint32_t seconds = timeout_ms / 1000;
             ts.tv_nsec = (timeout_ms - seconds * 1000) * 1000000;
             ts.tv_sec = seconds;
-            syscall(SYS_futex, ring->msg_ring.tail, FUTEX_WAIT, tail, &ts);
+            syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAIT, tail, &ts);
 #elif CV_USE_ULOCK
-            __ulock_wait(1, ring->msg_ring.tail, tail, timeout_ms * 1000);
+            __ulock_wait(1, &ring->msg_ring->tail, tail, timeout_ms * 1000);
 #endif
             timeout_ms = 0; // don't wait again
             continue;
         }
-        struct spms_msg *msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask];
+        struct spms_msg *msg = &ring->msgs[ring->head & ring->msg_ring->mask];
         __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
         __atomic_load(&msg->offset, &offset, __ATOMIC_RELAXED);
         __atomic_load(&msg->len, &len, __ATOMIC_RELAXED);
-        *out_addr = (uint8_t *)ring->buf_ring.buf + offset;
+        *out_addr = (uint8_t *)ring->buf + offset;
         *out_len = len;
         return ver;
     }
@@ -575,12 +595,12 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
 
 int32_t spms_sub_finalize_read_buf(spms_sub *ring, int32_t version)
 {
-    struct spms_msg *msg = &ring->msg_ring.buf[ring->head & *ring->msg_ring.mask];
+    struct spms_msg *msg = &ring->msgs[ring->head & ring->msg_ring->mask];
     uint8_t ver = 0;
     uint32_t tail = 0;
 
     // we don't really need the tail, but we need to sync with the writer
-    __atomic_load(ring->msg_ring.tail, &tail, __ATOMIC_ACQUIRE);
+    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
     __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
     ++ring->head;
     return (int32_t)ver == version ? 0 : -1;
