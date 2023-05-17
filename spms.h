@@ -9,8 +9,22 @@ typedef struct spms_sub spms_sub;
 
 struct spms_config
 {
+    /** buf_length
+     * @brief The length of the ring buffer in bytes
+     * @note Must be a power of 2
+     */
     size_t buf_length;
+
+    /** msg_entries
+     * @brief The number of entries in the ring buffer
+     * @note Must be a power of 2
+     */
     size_t msg_entries;
+
+    /** nonblocking
+     * @brief Whether the ring buffer should be nonblocking
+     * @note If nonblocking is set, then reading from the ring buffer will not block when it is empty.
+     */
     int8_t nonblocking;
 };
 
@@ -22,11 +36,13 @@ struct spms_config
 uint64_t spms_ring_mem_needed_size(struct spms_config *config);
 
 /** spms_ring_init
- * @brief Initialize a ring buffer in the given memory region
+ * @brief Initialize a ring buffer in the given memory region. This is done automatically by spms_pub_create, but
+ * in some cases it may be useful to initialize the ring buffer earlier (For example, to avoid race conditions between spms_pub_create and spms_sub_create)
  * @param mem The memory region to initialize the ring buffer in
  * @param config The config to use
  * @return 0 on success, -1 on failure
  * @note The memory region must be at least spms_mem_needed_size(config) bytes long
+ * @note The memory region must be aligned to a multiple of alignof(max_align_t)
  */
 int32_t spms_ring_mem_init(void *mem, struct spms_config *config);
 
