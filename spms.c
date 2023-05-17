@@ -1,15 +1,8 @@
 #include "spms.h"
 #include <stdlib.h>
-#include <sys/stat.h> /* For mode constants */
-#include <sys/syscall.h>
-#include <sys/time.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <string.h>
 #include <assert.h>
 #include <unistd.h>
-#include <errno.h>
-#include <time.h>
+#include <string.h>
 #include <stdalign.h>
 
 #ifdef __linux__
@@ -19,6 +12,8 @@
 #endif
 
 #ifdef CV_USE_FUTEX
+#include <sys/syscall.h>
+#include <time.h>
 #include <linux/futex.h>
 #include <limits.h>
 #elif CV_USE_ULOCK
@@ -36,84 +31,6 @@ extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
 static struct spms_config g_default_config = {.buf_length = 1 << 20,
                                               .msg_entries = 1 << 10,
                                               .nonblocking = 0};
-/** spms_shmem **/
-
-/**
-typedef struct spms_shmem
-{
-    char name[256];
-    int32_t flags;
-    int32_t fd;
-    size_t len;
-    void *addr;
-} spms_shmem;
-
-static int32_t spms_shmem_init(spms_shmem *shmem, const char *name, size_t len, int32_t flags)
-{
-    int32_t shm_flags = 0;
-
-    if (flags & SPMS_SHMEM_FLAG_CREATE)
-    {
-        shm_flags |= O_CREAT;
-        shm_flags |= O_EXCL;
-    }
-    int32_t fd = shm_open(name, shm_flags | O_RDWR, S_IRUSR | S_IWUSR);
-    if (fd != -1 && (flags & SPMS_SHMEM_FLAG_CREATE))
-    {
-        if (ftruncate(fd, len) == -1)
-            goto err;
-    }
-    if (fd == -1)
-    {
-        if (errno != EEXIST)
-            goto err;
-        shm_flags &= ~O_CREAT;
-        fd = shm_open(name, shm_flags | O_RDWR, S_IRUSR | S_IWUSR);
-        if (fd == -1)
-            goto err;
-    }
-    else
-    {
-        struct stat st;
-        if (fstat(fd, &st) == -1)
-            goto err;
-        len = st.st_size;
-    }
-    void *seg = mmap(NULL, len, PROT_READ | PROT_WRITE,
-                     MAP_SHARED, fd, 0);
-    if (seg == MAP_FAILED)
-        goto err;
-
-    snprintf(shmem->name, sizeof(shmem->name), "%s", name);
-    shmem->flags = flags;
-    shmem->len = len;
-    shmem->addr = seg;
-    shmem->fd = fd;
-    return (shm_flags & O_CREAT ? 1 : 0);
-err:
-    if (fd != -1)
-        close(fd);
-    return -1;
-}
-
-static void *spms_shmem_addr(spms_shmem *shmem)
-{
-    return shmem->addr;
-}
-
-static size_t spms_shmem_len(spms_shmem *shmem)
-{
-    return shmem->len;
-}
-
-static void spms_shmem_uninit(spms_shmem *shmem)
-{
-    close(shmem->fd);
-    munmap(shmem->addr, shmem->len);
-    if (shmem->flags & SPMS_SHMEM_FLAG_CREATE && !(shmem->flags & SPMS_SHMEM_FLAG_PERSISTENT))
-        shm_unlink(shmem->name);
-}
-**/
 
 /** spms_msg **/
 
