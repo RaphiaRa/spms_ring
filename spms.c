@@ -262,7 +262,7 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
     if (!ring->nonblocking)
     {
 #ifdef CV_USE_FUTEX
-        syscall(SYS_futex, &ring->msg_ring.tail, FUTEX_WAKE, INT_MAX, NULL);
+        syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAKE, INT_MAX, NULL);
 #elif CV_USE_ULOCK
         __ulock_wake(0x00000100, &ring->msg_ring->tail, 0);
 #endif
