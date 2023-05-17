@@ -273,7 +273,7 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
 
 int32_t spms_pub_create(spms_pub **out, void *mem, struct spms_config *config)
 {
-    if ((uintptr_t)mem % sizeof(max_align_t) != 0)
+    if ((uintptr_t)mem % alignof(max_align_t) != 0)
         return -1;
 
     spms_pub *p = (spms_pub *)calloc(1, sizeof(spms_pub));
@@ -364,7 +364,7 @@ struct spms_sub
 
 int32_t spms_sub_create(spms_sub **out, void *mem)
 {
-    if ((uintptr_t)mem % sizeof(max_align_t) != 0)
+    if ((uintptr_t)mem % alignof(max_align_t) != 0)
         return -1;
 
     spms_ring *ring = (spms_ring *)mem;
