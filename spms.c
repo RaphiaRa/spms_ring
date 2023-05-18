@@ -37,7 +37,6 @@ static struct spms_config g_default_config = {.buf_length = 1 << 20,
 struct spms_msg
 {
     int8_t is_nil;
-    int8_t is_key;
     uint8_t ver;
     uint32_t len;
     uint64_t ts;
@@ -58,7 +57,6 @@ static void spms_msg_release(struct spms_msg *msg)
     uint64_t ts = 0;
     uint64_t offset = 0;
     __atomic_store(&msg->is_nil, &is_nil, __ATOMIC_RELAXED);
-    __atomic_store(&msg->is_key, &is_key, __ATOMIC_RELAXED);
     __atomic_store(&msg->len, &len, __ATOMIC_RELAXED);
     __atomic_store(&msg->ts, &ts, __ATOMIC_RELAXED);
     __atomic_store(&msg->offset, &offset, __ATOMIC_RELAXED);
@@ -254,7 +252,6 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
     msg->len = (uint32_t)len;
     msg->ts = info->ts;
     msg->is_nil = info->is_nil;
-    msg->is_key = info->is_key;
     if (info->is_key)
         __atomic_store(&ring->msg_ring->last_key, &tail, __ATOMIC_RELAXED);
     ++tail;
