@@ -468,6 +468,28 @@ int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
     return 0;
 }
 
+int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
+{
+    uint32_t pos = 0;
+    if (spms_sub_get_cur_pos(sub, &pos) != 0)
+        return -1;
+    uint32_t tail = 0;
+    __atomic_load(&sub->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
+    while (pos < tail)
+    {
+        struct spms_msg *msg = &sub->msgs[pos & sub->msg_ring->mask];
+        uint8_t is_key = 0;
+        __atomic_load(&msg->is_key, &is_key, __ATOMIC_RELAXED);
+        if (is_key)
+        {
+            *out = pos;
+            return 0;
+        }
+        ++pos;
+    }
+    return 0;
+}
+
 int32_t spms_sub_set_pos(spms_sub *ring, uint32_t pos)
 {
     ring->head = pos;

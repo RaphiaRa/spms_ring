@@ -141,6 +141,14 @@ int32_t spms_sub_get_cur_pos(spms_sub *sub, uint32_t *pos);
  */
 int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *pos);
 
+/** spms_sub_next_key_pos
+ * @brief Get the position of the next key msg after the current read position
+ * @param sub The subscriber
+ * @param pos (out) The position of the next key msg
+ * @return 0 on success, -1 on failure
+ */
+int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *pos);
+
 /** spms_sub_set_pos
  * @brief Set the current read position of the subscriber
  * @param sub The subscriber
