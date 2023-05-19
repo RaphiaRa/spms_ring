@@ -452,7 +452,7 @@ int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos)
     return 0;
 }
 
-int32_t spms_sub_get_pos(spms_sub *ring, uint32_t *pos)
+int32_t spms_sub_get_cur_pos(spms_sub *ring, uint32_t *pos)
 {
     *pos = ring->head;
     return 0;
