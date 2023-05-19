@@ -36,7 +36,8 @@ static struct spms_config g_default_config = {.buf_length = 1 << 20,
 
 struct spms_msg
 {
-    int8_t is_nil;
+    uint8_t is_key;
+    uint8_t is_nil;
     uint8_t ver;
     uint32_t len;
     uint64_t ts;
@@ -51,11 +52,12 @@ static void spms_msg_update(struct spms_msg *msg)
 
 static void spms_msg_release(struct spms_msg *msg)
 {
-    int8_t is_nil = 0;
-    int8_t is_key = 0;
+    uint8_t is_key = 0;
+    uint8_t is_nil = 0;
     uint32_t len = 0;
     uint64_t ts = 0;
     uint64_t offset = 0;
+    __atomic_store(&msg->is_key, &is_key, __ATOMIC_RELAXED);
     __atomic_store(&msg->is_nil, &is_nil, __ATOMIC_RELAXED);
     __atomic_store(&msg->len, &len, __ATOMIC_RELAXED);
     __atomic_store(&msg->ts, &ts, __ATOMIC_RELAXED);
@@ -250,10 +252,17 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
     ring->buf_ring->tail += (uint64_t)len;
     msg->offset = offset;
     msg->len = (uint32_t)len;
-    msg->ts = info->ts;
-    msg->is_nil = info->is_nil;
-    if (info->is_key)
-        __atomic_store(&ring->msg_ring->last_key, &tail, __ATOMIC_RELAXED);
+    if (info)
+    {
+        msg->ts = info->ts;
+        msg->is_key = info->is_key;
+        if (info->is_key)
+            __atomic_store(&ring->msg_ring->last_key, &tail, __ATOMIC_RELAXED);
+    }
+    else
+    {
+        msg->is_nil = 1;
+    }
     ++tail;
     __atomic_store(&ring->msg_ring->tail, &tail, __ATOMIC_RELEASE);
     if (!ring->nonblocking)
@@ -308,33 +317,27 @@ int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len)
             *addr = (uint8_t *)ring->buf + offset;
             return 0;
         }
-        struct spms_msg_info nil_info = {0, 1, 0};
-        spms_pub_flush_write_buffer_ex(ring, offset, buf_len, &nil_info);
+        spms_pub_flush_write_buffer_ex(ring, offset, buf_len, NULL);
     }
 }
 
-int32_t spms_pub_flush_write_buf_with_info(spms_pub *ring, void *addr, size_t len, struct spms_msg_info *info)
+int32_t spms_pub_flush_write_buf(spms_pub *ring, void *addr, size_t len, const struct spms_msg_info *info)
 {
-    struct spms_msg_info default_info = {0, 0, 0};
+    struct spms_msg_info default_info = {0, 0};
     if (!info)
         info = &default_info;
     spms_pub_flush_write_buffer_ex(ring, (uint8_t *)addr - (uint8_t *)ring->buf, len, info);
     return 0;
 }
 
-int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len)
-{
-    return spms_pub_write_msg_with_info(ring, addr, len, NULL);
-}
-
-int32_t spms_pub_write_msg_with_info(spms_pub *ring, const void *addr, size_t len, struct spms_msg_info *info)
+int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len, const struct spms_msg_info *info)
 {
     int32_t ret = 0;
     void *ptr = NULL;
     if ((ret = spms_pub_get_write_buf(ring, &ptr, len)) < 0)
         return ret;
     memcpy(ptr, addr, len);
-    spms_pub_flush_write_buf_with_info(ring, ptr, len, info);
+    spms_pub_flush_write_buf(ring, ptr, len, info);
     return 0;
 }
 
@@ -461,13 +464,11 @@ int32_t spms_sub_set_pos(spms_sub *ring, uint32_t pos)
     return 0;
 }
 
-int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len, uint32_t timeout_ms)
+int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len, struct spms_msg_info *info, uint32_t timeout_ms)
 {
     while (1)
     {
-        uint32_t tail, idx, len;
-        uint8_t ver;
-        uint64_t offset;
+        uint32_t tail, idx;
         __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
         if (tail - ring->head > ring->safe_zone) // ensure safe zone
         {
@@ -498,9 +499,18 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
             continue;
         }
         struct spms_msg *msg = &ring->msgs[ring->head & ring->msg_ring->mask];
+        uint32_t len = 0;
+        uint8_t ver = 0;
+        uint64_t offset = 0;
+
         __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
         __atomic_load(&msg->offset, &offset, __ATOMIC_RELAXED);
         __atomic_load(&msg->len, &len, __ATOMIC_RELAXED);
+        if (info)
+        {
+            __atomic_load(&msg->is_key, &info->is_key, __ATOMIC_RELAXED);
+            __atomic_load(&msg->ts, &info->ts, __ATOMIC_RELAXED);
+        }
         *out_addr = (uint8_t *)ring->buf + offset;
         *out_len = len;
         return ver;
@@ -520,13 +530,13 @@ int32_t spms_sub_finalize_read_buf(spms_sub *ring, int32_t version)
     return (int32_t)ver == version ? 0 : -1;
 }
 
-int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, uint32_t timeout_ms)
+int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms)
 {
     while (1)
     {
         const void *ptr = NULL;
         size_t ptr_len = 0;
-        int32_t ver = spms_sub_get_read_buf(ring, &ptr, &ptr_len, timeout_ms);
+        int32_t ver = spms_sub_get_read_buf(ring, &ptr, &ptr_len, info, timeout_ms);
         if (ver < 0 || ptr_len > *len)
             return -1;
 

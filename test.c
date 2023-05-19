@@ -73,7 +73,7 @@ static int test_write(spms_pub *pub)
         TEST(spms_pub_get_write_buf(pub, &addr, blocks * sizeof(test_sequence)) == 0);
         for (int j = 0; j < blocks; j++)
             memcpy(addr + j * sizeof(test_sequence), test_sequence, sizeof(test_sequence));
-        TEST(spms_pub_flush_write_buf_with_info(pub, addr, blocks * sizeof(test_sequence), NULL) == 0);
+        TEST(spms_pub_flush_write_buf(pub, addr, blocks * sizeof(test_sequence), NULL) == 0);
         usleep(100);
     }
     spms_pub_free(pub);
@@ -92,7 +92,7 @@ static int test_read(void *buf)
     {
         char buf[128 * 1024];
         size_t len = sizeof(buf);
-        while (spms_sub_read_msg(sub, buf, &len, 10) == -1)
+        while (spms_sub_read_msg(sub, buf, &len, NULL, 10) == -1)
         {
             uint64_t dropped = 0;
             spms_sub_get_dropped_count(sub, &dropped);

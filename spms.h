@@ -48,8 +48,7 @@ int32_t spms_ring_mem_init(void *mem, struct spms_config *config);
 
 struct spms_msg_info
 {
-    int8_t is_key;
-    int8_t is_nil;
+    uint8_t is_key;
     uint64_t ts;
 };
 
@@ -69,15 +68,7 @@ void spms_sub_free(spms_sub *ring);
  * @param len The length of the message to write
  * @return 0 on success, -1 on failure
  */
-int32_t spms_pub_write_msg(spms_pub *pub, const void *addr, size_t len);
-
-/** spms_pub_write_msg_with_info
- * @brief Similar to spms_pub_write_msg, but also allows the user to specify
- * additional info about the message, such as whether it is a key message (Like a keyframe in a video)
- * and the timestamp of the message.
- * @return 0 on success, -1 on failure
- */
-int32_t spms_pub_write_msg_with_info(spms_pub *pub, const void *addr, size_t len, struct spms_msg_info *info);
+int32_t spms_pub_write_msg(spms_pub *pub, const void *addr, size_t len, const struct spms_msg_info *info);
 
 /** spms_sub_read_msg
  * @brief Read a message from the ring buffer. If the ring is empty, this function will block
@@ -88,7 +79,7 @@ int32_t spms_pub_write_msg_with_info(spms_pub *pub, const void *addr, size_t len
  * @param timeout_ms The timeout in milliseconds.
  * @return 0 on success, -1 on failure
  */
-int32_t spms_sub_read_msg(spms_sub *sub, void *addr, size_t *len, uint32_t timeout_ms);
+int32_t spms_sub_read_msg(spms_sub *sub, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms);
 
 /** Control API **/
 
@@ -153,9 +144,9 @@ int32_t spms_sub_set_pos(spms_sub *sub, uint32_t pos);
 /** Zero copy API **/
 
 int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len);
-int32_t spms_pub_flush_write_buf_with_info(spms_pub *ring, void *addr, size_t len, struct spms_msg_info *info);
+int32_t spms_pub_flush_write_buf(spms_pub *ring, void *addr, size_t len, const struct spms_msg_info *info);
 
-int32_t spms_sub_get_read_buf(spms_sub *ring, const void **addr, size_t *len, uint32_t timeout_ms);
+int32_t spms_sub_get_read_buf(spms_sub *ring, const void **addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms);
 int32_t spms_sub_finalize_read(spms_sub *ring, int32_t ver);
 
 #endif

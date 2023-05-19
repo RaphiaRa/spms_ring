@@ -49,8 +49,8 @@ static int32_t pub()
             sprintf(buf, "This is a key message");
         else
             sprintf(buf, "Msg: %s", time_buf);
-        struct spms_msg_info info = {is_key, 0, ts};
-        spms_pub_write_msg_with_info(pub, buf, strlen(buf), &info);
+        struct spms_msg_info info = {is_key, ts};
+        spms_pub_write_msg(pub, buf, strlen(buf), &info);
         sleep(1);
     }
     printf("Stopping...\n");
@@ -92,7 +92,7 @@ static int32_t sub()
     {
         char buf[1024];
         size_t len = sizeof(buf);
-        if (spms_sub_read_msg(sub, buf, &len, 1000) == 0)
+        if (spms_sub_read_msg(sub, buf, &len, NULL, 1000) == 0)
             printf("Msg: %.*s\n", (int)len, buf);
     }
     printf("Stopping...\n");
