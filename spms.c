@@ -458,6 +458,16 @@ int32_t spms_sub_get_cur_pos(spms_sub *ring, uint32_t *pos)
     return 0;
 }
 
+int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
+{
+    uint32_t pos = 0;
+    if (spms_sub_get_cur_pos(sub, &pos) != 0)
+        return -1;
+    struct spms_msg *msg = &sub->msgs[pos & sub->msg_ring->mask];
+    __atomic_load(&msg->ts, ts, __ATOMIC_RELAXED);
+    return 0;
+}
+
 int32_t spms_sub_set_pos(spms_sub *ring, uint32_t pos)
 {
     ring->head = pos;

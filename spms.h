@@ -133,6 +133,14 @@ int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos);
  */
 int32_t spms_sub_get_cur_pos(spms_sub *sub, uint32_t *pos);
 
+/** spms_sub_get_cur_ts
+ * @brief Get the timestamp of the current read position of the subscriber
+ * @param sub The subscriber
+ * @param pos (out) The timestamp of the current read position
+ * @return 0 on success, -1 on failure
+ */
+int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *pos);
+
 /** spms_sub_set_pos
  * @brief Set the current read position of the subscriber
  * @param sub The subscriber
