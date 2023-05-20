@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <pthread.h>
 #include <string.h>
+#include <stdalign.h>
 
 #define TEST(x)                                                        \
     if (x == 0)                                                        \
@@ -13,22 +14,22 @@
         return -1;                                                     \
     }
 
+#define ALIGNED __attribute__((aligned(alignof(max_align_t))))
+
 static int test_spms_pub_ctor_dtor()
 {
     {
         spms_pub *pub;
-        void *buffer = calloc(spms_ring_mem_needed_size(NULL), 1);
+        uint8_t buffer[1024 * 1024] ALIGNED = {0};
         TEST(spms_pub_create(&pub, buffer, NULL) == 0);
         spms_pub_free(pub);
-        free(buffer);
     }
     {
         spms_pub *pub;
         struct spms_config config = {.buf_length = 1024, .msg_entries = 1024, .nonblocking = 0};
-        void *buffer = calloc(spms_ring_mem_needed_size(&config), 1);
+        uint8_t buffer[1024 * 1024] ALIGNED = {0};
         TEST(spms_pub_create(&pub, buffer, &config) == 0);
         spms_pub_free(pub);
-        free(buffer);
     }
     return 0;
 }
@@ -37,19 +38,17 @@ static int test_spms_sub_ctor_dtor()
 {
     {
         spms_sub *sub;
-        void *buffer = calloc(spms_ring_mem_needed_size(NULL), 1);
-        TEST(spms_sub_create(&sub, buffer) != 0);
-        free(buffer);
+        uint8_t buffer[1024 * 1024] ALIGNED = {0};
+        TEST(spms_sub_create(&sub, buffer) == SPMS_ERROR_INVALID_ARG);
     }
     {
         spms_sub *sub;
         spms_pub *pub;
-        void *buffer = calloc(spms_ring_mem_needed_size(NULL), 1);
+        uint8_t buffer[1024 * 1024] ALIGNED = {0};
         TEST(spms_pub_create(&pub, buffer, NULL) == 0);
         TEST(spms_sub_create(&sub, buffer) == 0);
         spms_sub_free(sub);
         spms_pub_free(pub);
-        free(buffer);
     }
     return 0;
 }
