@@ -586,8 +586,8 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
 int32_t spms_sub_finalize_read_buf(spms_sub *sub)
 {
     int32_t result = spms_sub_verify_cur_pos(sub);
-    // whether we fail or not, we always move forward
-    ++sub->head;
+    if (result == 0)
+        ++sub->head;
     return result;
 }
 
