@@ -26,7 +26,6 @@ extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
 #define SPMS_MSG_RING_HEADER_LENGTH 128
 #define SPMS_BUF_RING_HEADER_LENGTH 128
 #define SPMS_INIT_CODE 0x00000001
-#define SPMS_MEM_FLAG_INIT 1 << 0
 
 #define atomic_u8 atomic_uint_least8_t
 #define atomic_u32 atomic_uint_least32_t
