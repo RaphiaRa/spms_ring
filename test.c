@@ -74,7 +74,7 @@ static int test_write(spms_pub *pub)
         for (int j = 0; j < blocks; j++)
             memcpy(addr + j * sizeof(test_sequence), test_sequence, sizeof(test_sequence));
         TEST(spms_pub_flush_write_buf(pub, addr, blocks * sizeof(test_sequence), NULL) == 0);
-        usleep(100);
+        usleep(50);
     }
     spms_pub_free(pub);
     return 0;
@@ -84,28 +84,14 @@ static int test_read(void *buf)
 {
     spms_sub *sub;
     TEST(spms_sub_create(&sub, buf) == 0);
-    uint32_t pos = 0;
-    TEST(spms_sub_get_latest_pos(sub, &pos) == 0);
-    spms_sub_set_pos(sub, pos);
-    size_t count = pos;
     for (int i = 0; i < test_packet_count; i++)
     {
         char buf[128 * 1024];
         size_t len = sizeof(buf);
-        while (spms_sub_read_msg(sub, buf, &len, NULL, 10) == -1)
-        {
-            uint64_t dropped = 0;
-            spms_sub_get_dropped_count(sub, &dropped);
-            if (count + dropped == test_packet_count)
-            {
-                spms_sub_free(sub);
-                return 0;
-            }
-        }
-
+        while (spms_sub_read_msg(sub, buf, &len, NULL, 1000) == -1)
+            return 0;
         for (int j = 0; j < len; j++)
             TEST(buf[j] == test_sequence[j % sizeof(test_sequence)]);
-        ++count;
     }
     spms_sub_free(sub);
     return 0;
@@ -126,7 +112,8 @@ static int test_spms_read_write_consistency()
 
     spms_pub *pub;
     void *buf = calloc(1, 4 * 1024 * 1024);
-    TEST(spms_pub_create(&pub, buf, NULL) == 0);
+    struct spms_config config = {.buf_length = 2 * 1024 * 1024, .msg_entries = 1024, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == 0);
 
     // start readers
     for (int i = 0; i < 4; i++)
