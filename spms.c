@@ -459,8 +459,9 @@ void spms_sub_get_cur_pos(spms_sub *ring, uint32_t *pos)
 int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
 {
     uint32_t pos = 0;
-    if (spms_sub_get_and_verify_cur_pos(sub, &pos) != 0)
-        return -1;
+    int32_t ret = 0;
+    if ((ret = spms_sub_get_and_verify_cur_pos(sub, &pos)) < 0)
+        return ret;
     struct spms_msg *msg = &sub->msgs[pos & sub->msg_ring->mask];
     __atomic_load(&msg->ts, ts, __ATOMIC_RELAXED);
     return verify_pos(sub, pos);
@@ -469,8 +470,9 @@ int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
 int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
 {
     uint32_t pos = 0;
-    if (spms_sub_get_and_verify_cur_pos(sub, &pos) != 0)
-        return -1;
+    int32_t ret = 0;
+    if ((ret = spms_sub_get_and_verify_cur_pos(sub, &pos)) < 0)
+        return ret;
 
     uint32_t tail = 0;
     __atomic_load(&sub->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
@@ -487,7 +489,7 @@ int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
         }
         ++pos;
     }
-    return -1;
+    return SPMS_ERROR_NOT_AVAILABLE;
 }
 
 int32_t spms_sub_get_ts_by_pos(spms_sub *sub, uint64_t *ts, uint32_t pos)
