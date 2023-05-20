@@ -376,7 +376,7 @@ int32_t spms_sub_create(spms_sub **out, void *mem)
     p->msgs = (struct spms_msg *)((uint8_t *)mem + ring->msg_ring_offset + SPMS_MSG_RING_HEADER_LENGTH);
     p->buf_ring = (spms_buf_ring *)((uint8_t *)mem + ring->buf_ring_offset);
     p->buf = (struct spms_buf *)((uint8_t *)mem + ring->buf_ring_offset + SPMS_BUF_RING_HEADER_LENGTH);
-    spms_sub_pos_rewind(p);
+    spms_sub_rewind(p);
     *out = p;
     return 0;
 }
@@ -392,7 +392,7 @@ int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count)
     return 0;
 }
 
-int32_t spms_sub_pos_rewind(spms_sub *ring)
+int32_t spms_sub_rewind(spms_sub *ring)
 {
     uint32_t tail;
     __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_RELAXED);

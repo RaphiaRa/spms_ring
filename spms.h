@@ -6,6 +6,7 @@
 
 #define SPMS_ERROR_AGAIN -1
 #define SPMS_ERROR_EXPIRED -2
+#define SPMS_ERROR_INVALID -3
 
 typedef struct spms_pub spms_pub;
 typedef struct spms_sub spms_sub;
@@ -88,12 +89,12 @@ int32_t spms_sub_read_msg(spms_sub *sub, void *addr, size_t *len, struct spms_ms
 
 int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count);
 
-/** spms_sub_pos_rewind
+/** spms_sub_rewind
  * @brief Move the read position to the latest msg in the ring
  * @param sub The subscriber to rewind
  * @return 0 on success, -1 on failure
  */
-int32_t spms_sub_pos_rewind(spms_sub *sub);
+int32_t spms_sub_rewind(spms_sub *sub);
 
 /** spms_sub_get_pos_by_ts
  * @brief Get the position of the first msg with a timestamp >= ts
