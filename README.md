@@ -3,10 +3,9 @@
 
 ### Description
 `spms_ring` is a single publisher multiple subscriber ring buffer suitable for shared memory.
-The publisher writes messages to the ring without being aware of the subscribers. 
-The subscribers can read the messages from the ring, but won't consume them, meaning
-that every subscriber will receive the same messages. If a subscriber is not fast enough
-to read the messages, it will miss some of them.
+The publisher writes messages to the ring without being aware of the subscribers.
+When a subscriber reads a message, it is not removed from the ring and still can
+be read by other subscribers. If a subscriber is not fast enough to read the messages, it will miss some of them.
 
 Besides the usual read and write functions, I wanted the ring to have the following features:
 - Timestamps can be added to the messages and subscribers can read from a specific timestamp on.
