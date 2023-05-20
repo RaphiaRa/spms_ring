@@ -66,7 +66,7 @@ uint64_t spms_ring_mem_needed_size(struct spms_config *config);
  * in some cases it may be useful to initialize the ring buffer earlier (For example, to avoid race conditions between spms_pub_create and spms_sub_create)
  * @param mem The memory region to initialize the ring buffer in
  * @param config The config to use
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  * @note The memory region must be at least spms_mem_needed_size(config) bytes long
  * @note The memory region must be aligned to a multiple of alignof(max_align_t)
  */
@@ -92,7 +92,7 @@ void spms_sub_free(spms_sub *ring);
  * @param pub The publisher to write to
  * @param addr The address of the message to write
  * @param len The length of the message to write
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_pub_write_msg(spms_pub *pub, const void *addr, size_t len, const struct spms_msg_info *info);
 
@@ -103,7 +103,7 @@ int32_t spms_pub_write_msg(spms_pub *pub, const void *addr, size_t len, const st
  * @param addr The address to the buffer to read the message into
  * @param len (in/out) The length of the buffer addr points to (in), and the length of the message that was read (out)
  * @param timeout_ms The timeout in milliseconds.
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_read_msg(spms_sub *sub, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms);
 
@@ -114,7 +114,7 @@ int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count);
 /** spms_sub_rewind
  * @brief Move the read position to the latest msg in the ring
  * @param sub The subscriber to rewind
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_rewind(spms_sub *sub);
 
@@ -123,7 +123,7 @@ int32_t spms_sub_rewind(spms_sub *sub);
  * @param sub The subscriber
  * @param pos (out) The position of the msg at or after ts
  * @param ts The timestamp to search for
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_get_pos_by_ts(spms_sub *sub, uint32_t *pos, uint64_t ts);
 
@@ -131,7 +131,7 @@ int32_t spms_sub_get_pos_by_ts(spms_sub *sub, uint32_t *pos, uint64_t ts);
  * @brief Get the timestamp of the latest msg in the ring
  * @param sub The subscriber
  * @param ts (out) The timestamp of the latest msg
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_get_latest_ts(spms_sub *sub, uint64_t *ts);
 
@@ -139,7 +139,7 @@ int32_t spms_sub_get_latest_ts(spms_sub *sub, uint64_t *ts);
  * @brief Get the position of the latest msg in the ring
  * @param sub The subscriber
  * @param pos (out) The position of the latest msg
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_get_latest_pos(spms_sub *sub, uint32_t *pos);
 
@@ -147,7 +147,7 @@ int32_t spms_sub_get_latest_pos(spms_sub *sub, uint32_t *pos);
  * @brief Get the position of the latest key msg in the ring
  * @param sub The subscriber
  * @param pos (out) The position of the latest key msg
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos);
 
@@ -161,7 +161,7 @@ void spms_sub_get_cur_pos(spms_sub *sub, uint32_t *pos);
 /** spms_sub_verify_cur_pos
  * @brief Verify that the current read position of the subscriber is valid
  * @param sub The subscriber
- * @return 0 on success, -1 on failure (invalid position)
+ * @return 0 on success, SPMS_ERROR_INVALID_POS if the position is invalid
  */
 int32_t spms_sub_verify_cur_pos(spms_sub *sub);
 
@@ -169,14 +169,14 @@ int32_t spms_sub_verify_cur_pos(spms_sub *sub);
  * @brief Get the current read position of the subscriber and verify that it is valid
  * @param sub The subscriber
  * @param pos (out) The current read position
- * @return 0 on success, -1 on failure (invalid position)
+ * @return 0 on success, SPMS_ERROR_INVALID_POS if the position is invalid
  */
 int32_t spms_sub_get_and_verify_cur_pos(spms_sub *sub, uint32_t *pos);
 
 /** spms_sub_ensure_valid_cur_pos
  * @brief Ensure that the current read position of the subscriber is valid
  * @param sub The subscriber
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_ensure_valid_cur_pos(spms_sub *sub);
 
@@ -184,7 +184,7 @@ int32_t spms_sub_ensure_valid_cur_pos(spms_sub *sub);
  * @brief Get the timestamp of the current read position of the subscriber
  * @param sub The subscriber
  * @param pos (out) The timestamp of the current read position
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *pos);
 
@@ -192,7 +192,7 @@ int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *pos);
  * @brief Get the position of the next key msg after the current read position
  * @param sub The subscriber
  * @param pos (out) The position of the next key msg
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *pos);
 
@@ -201,7 +201,7 @@ int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *pos);
  * @param sub The subscriber
  * @param ts (out) The timestamp of the msg at position pos
  * @param pos The position of the msg
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_get_ts_by_pos(spms_sub *sub, uint64_t *ts, uint32_t pos);
 
@@ -209,7 +209,7 @@ int32_t spms_sub_get_ts_by_pos(spms_sub *sub, uint64_t *ts, uint32_t pos);
  * @brief Set the current read position of the subscriber
  * @param sub The subscriber
  * @param pos The new read position
- * @return 0 on success, -1 on failure
+ * @return 0 on success, error code on failure
  */
 int32_t spms_sub_set_pos(spms_sub *sub, uint32_t pos);
 
