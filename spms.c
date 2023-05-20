@@ -13,6 +13,7 @@
 
 #ifdef CV_USE_FUTEX
 #include <sys/syscall.h>
+#include <unistd.h>
 #include <time.h>
 #include <linux/futex.h>
 #include <limits.h>
