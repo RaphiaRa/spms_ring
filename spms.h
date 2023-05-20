@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define SPMS_ERROR_AGAIN -1
+#define SPMS_ERROR_EXPIRED -2
+
 typedef struct spms_pub spms_pub;
 typedef struct spms_sub spms_sub;
 
@@ -129,9 +132,30 @@ int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos);
  * @brief Get the current read position of the subscriber
  * @param sub The subscriber
  * @param pos (out) The current read position
+ */
+void spms_sub_get_cur_pos(spms_sub *sub, uint32_t *pos);
+
+/** spms_sub_verify_cur_pos
+ * @brief Verify that the current read position of the subscriber is valid
+ * @param sub The subscriber
+ * @return 0 on success, -1 on failure (invalid position)
+ */
+int32_t spms_sub_verify_cur_pos(spms_sub *sub);
+
+/** spms_sub_get_and_verify_cur_pos
+ * @brief Get the current read position of the subscriber and verify that it is valid
+ * @param sub The subscriber
+ * @param pos (out) The current read position
+ * @return 0 on success, -1 on failure (invalid position)
+ */
+int32_t spms_sub_get_and_verify_cur_pos(spms_sub *sub, uint32_t *pos);
+
+/** spms_sub_ensure_valid_cur_pos
+ * @brief Ensure that the current read position of the subscriber is valid
+ * @param sub The subscriber
  * @return 0 on success, -1 on failure
  */
-int32_t spms_sub_get_cur_pos(spms_sub *sub, uint32_t *pos);
+int32_t spms_sub_ensure_valid_cur_pos(spms_sub *sub);
 
 /** spms_sub_get_cur_ts
  * @brief Get the timestamp of the current read position of the subscriber
@@ -149,6 +173,15 @@ int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *pos);
  */
 int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *pos);
 
+/** spms_sub_get_ts_bys_pos
+ * @brief Get the timestamp of the msg at position pos
+ * @param sub The subscriber
+ * @param ts (out) The timestamp of the msg at position pos
+ * @param pos The position of the msg
+ * @return 0 on success, -1 on failure
+ */
+int32_t spms_sub_get_ts_by_pos(spms_sub *sub, uint64_t *ts, uint32_t pos);
+
 /** spms_sub_set_pos
  * @brief Set the current read position of the subscriber
  * @param sub The subscriber
@@ -163,6 +196,6 @@ int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len);
 int32_t spms_pub_flush_write_buf(spms_pub *ring, void *addr, size_t len, const struct spms_msg_info *info);
 
 int32_t spms_sub_get_read_buf(spms_sub *ring, const void **addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms);
-int32_t spms_sub_finalize_read(spms_sub *ring, int32_t ver);
+int32_t spms_sub_finalize_read(spms_sub *ring);
 
 #endif

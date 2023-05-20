@@ -38,17 +38,10 @@ struct spms_msg
 {
     uint8_t is_key;
     uint8_t is_nil;
-    uint8_t ver;
     uint32_t len;
     uint64_t ts;
     uint64_t offset;
 };
-
-static void spms_msg_update(struct spms_msg *msg)
-{
-    uint8_t ver = ++msg->ver;
-    __atomic_store(&msg->ver, &ver, __ATOMIC_RELAXED);
-}
 
 static void spms_msg_release(struct spms_msg *msg)
 {
@@ -62,14 +55,6 @@ static void spms_msg_release(struct spms_msg *msg)
     __atomic_store(&msg->len, &len, __ATOMIC_RELAXED);
     __atomic_store(&msg->ts, &ts, __ATOMIC_RELAXED);
     __atomic_store(&msg->offset, &offset, __ATOMIC_RELAXED);
-    spms_msg_update(msg);
-}
-
-static uint8_t spms_msg_version(struct spms_msg *msg)
-{
-    uint8_t ver = 0;
-    __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
-    return ver;
 }
 
 /** spms_msg_ring **/
@@ -163,7 +148,7 @@ typedef struct spms_ring
     uint64_t init_code;
     uint64_t msg_ring_offset;
     uint64_t buf_ring_offset;
-    int8_t nonblocking;
+    uint8_t nonblocking;
 } spms_ring;
 
 uint64_t spms_ring_mem_needed_size(struct spms_config *config)
@@ -210,7 +195,7 @@ struct spms_pub
     struct spms_msg *msgs;
     spms_buf_ring *buf_ring;
     void *buf;
-    int8_t nonblocking;
+    uint8_t nonblocking;
 };
 
 /** spms_pub private functions */
@@ -224,16 +209,19 @@ static void spms_pub_release_msg(spms_pub *ring, struct spms_msg *msg)
 static void spms_pub_release_msg_from_head(spms_pub *ring)
 {
     // don't need to use atomics here, we're the only ones modifying head
-    uint32_t index = ring->msg_ring->head & ring->msg_ring->mask;
+    uint32_t head = ring->msg_ring->head;
+    uint32_t index = head & ring->msg_ring->mask;
     spms_pub_release_msg(ring, &ring->msgs[index]);
-    ++(ring->msg_ring->head);
+    ++head;
+    __atomic_store(&ring->msg_ring->head, &head, __ATOMIC_RELAXED);
 }
 
-static void spms_pub_ensure_buffer_space(spms_pub *ring, size_t len)
+static void spms_pub_ensure_avail_buffer(spms_pub *ring, size_t len)
 {
     uint32_t n = 0;
-    uint64_t capacity = ring->buf_ring->length;
-    while (capacity - (ring->buf_ring->tail - ring->buf_ring->head) < len)
+    uint64_t buffer_capacity = ring->buf_ring->length;
+    uint64_t msg_capacity = ring->msg_ring->entries;
+    while ((buffer_capacity - (ring->buf_ring->tail - ring->buf_ring->head) < len) || (msg_capacity == (ring->msg_ring->tail - ring->msg_ring->head)))
     {
         spms_pub_release_msg_from_head(ring);
     }
@@ -309,7 +297,7 @@ int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len)
 {
     while (1) // try until we get a suitable buffer
     {
-        spms_pub_ensure_buffer_space(ring, len);
+        spms_pub_ensure_avail_buffer(ring, len);
         uint32_t buf_len = (uint32_t)len;
         uint64_t offset = spms_buf_ring_aquire_buffer(ring->buf_ring, &buf_len);
         if (buf_len >= len) // got a suitable buffer
@@ -358,9 +346,17 @@ struct spms_sub
     void *buf;
     uint32_t head;
     uint32_t dropped;
-    uint32_t safe_zone;
-    int8_t nonblocking;
+    uint8_t nonblocking;
+    uint8_t ver;
 };
+
+static int32_t verify_pos(spms_sub *sub, uint32_t pos)
+{
+    uint32_t head, tail;
+    __atomic_load(&sub->msg_ring->tail, &tail, __ATOMIC_ACQUIRE); // sync with producer
+    __atomic_load(&sub->msg_ring->head, &head, __ATOMIC_RELAXED);
+    return head <= pos && pos < tail ? 0 : -1;
+}
 
 int32_t spms_sub_create(spms_sub **out, void *mem)
 {
@@ -380,7 +376,6 @@ int32_t spms_sub_create(spms_sub **out, void *mem)
     p->msgs = (struct spms_msg *)((uint8_t *)mem + ring->msg_ring_offset + SPMS_MSG_RING_HEADER_LENGTH);
     p->buf_ring = (spms_buf_ring *)((uint8_t *)mem + ring->buf_ring_offset);
     p->buf = (struct spms_buf *)((uint8_t *)mem + ring->buf_ring_offset + SPMS_BUF_RING_HEADER_LENGTH);
-    p->safe_zone = p->msg_ring->entries - p->msg_ring->entries / 16;
     spms_sub_pos_rewind(p);
     *out = p;
     return 0;
@@ -401,26 +396,28 @@ int32_t spms_sub_pos_rewind(spms_sub *ring)
 {
     uint32_t tail;
     __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_RELAXED);
-    ring->head = tail;
+    if (tail == 0)
+        ring->head = 0;
+    else
+        ring->head = (tail - 1);
     return 0;
 }
 
 int32_t spms_sub_get_pos_by_ts(spms_sub *ring, uint32_t *pos, uint64_t ts)
 {
     uint32_t head, tail;
-    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_RELAXED);
-    head = tail - ring->msg_ring->entries;
-    while (head != tail)
+    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
+    __atomic_load(&ring->msg_ring->head, &head, __ATOMIC_RELAXED);
+    while (head < tail - 1)
     {
         struct spms_msg *a = &ring->msgs[(tail - 2) & ring->msg_ring->mask];
         struct spms_msg *b = &ring->msgs[(tail - 1) & ring->msg_ring->mask];
-
+        --tail;
         if (a->ts <= ts && b->ts >= ts)
         {
             *pos = tail;
-            return 0;
+            return verify_pos(ring, tail);
         }
-        --tail;
     }
     return -1;
 }
@@ -431,48 +428,49 @@ int32_t spms_sub_get_latest_ts(spms_sub *ring, uint64_t *ts)
     __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
     struct spms_msg *msg = &ring->msgs[(tail - 1) & ring->msg_ring->mask];
     __atomic_load(&msg->ts, ts, __ATOMIC_RELAXED);
-    return 0;
+    return verify_pos(ring, tail - 1);
 }
 
 int32_t spms_sub_get_latest_pos(spms_sub *ring, uint32_t *pos)
 {
     uint32_t tail;
-    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_RELAXED);
+    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
+    if (tail == 0)
+        return -1;
     *pos = (tail - 1);
     return 0;
 }
 
 int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos)
 {
-    uint32_t tail;
+    uint32_t head, tail;
     __atomic_load(&sub->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
+    __atomic_load(&sub->msg_ring->head, &head, __ATOMIC_RELAXED);
     __atomic_load(&sub->msg_ring->last_key, pos, __ATOMIC_RELAXED);
-    if (*pos >= tail)
-        return -1;
-    return 0;
+    return verify_pos(sub, *pos);
 }
 
-int32_t spms_sub_get_cur_pos(spms_sub *ring, uint32_t *pos)
+void spms_sub_get_cur_pos(spms_sub *ring, uint32_t *pos)
 {
     *pos = ring->head;
-    return 0;
 }
 
 int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
 {
     uint32_t pos = 0;
-    if (spms_sub_get_cur_pos(sub, &pos) != 0)
+    if (spms_sub_get_and_verify_cur_pos(sub, &pos) != 0)
         return -1;
     struct spms_msg *msg = &sub->msgs[pos & sub->msg_ring->mask];
     __atomic_load(&msg->ts, ts, __ATOMIC_RELAXED);
-    return 0;
+    return verify_pos(sub, pos);
 }
 
 int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
 {
     uint32_t pos = 0;
-    if (spms_sub_get_cur_pos(sub, &pos) != 0)
+    if (spms_sub_get_and_verify_cur_pos(sub, &pos) != 0)
         return -1;
+
     uint32_t tail = 0;
     __atomic_load(&sub->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
     while (pos < tail)
@@ -483,11 +481,20 @@ int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
         if (is_key)
         {
             *out = pos;
-            return 0;
+            // Check whether out read position was overwritten
+            return verify_pos(sub, pos);
         }
         ++pos;
     }
-    return 0;
+    return -1;
+}
+
+int32_t spms_sub_get_ts_by_pos(spms_sub *sub, uint64_t *ts, uint32_t pos)
+{
+    uint32_t head = 0;
+    struct spms_msg *msg = &sub->msgs[pos & sub->msg_ring->mask];
+    __atomic_load(&msg->ts, ts, __ATOMIC_RELAXED);
+    return verify_pos(sub, pos);
 }
 
 int32_t spms_sub_set_pos(spms_sub *ring, uint32_t pos)
@@ -496,18 +503,44 @@ int32_t spms_sub_set_pos(spms_sub *ring, uint32_t pos)
     return 0;
 }
 
+int32_t spms_sub_verify_cur_pos(spms_sub *sub)
+{
+    return verify_pos(sub, sub->head);
+}
+
+int32_t spms_sub_get_and_verify_cur_pos(spms_sub *sub, uint32_t *pos)
+{
+    *pos = sub->head;
+    return spms_sub_verify_cur_pos(sub);
+}
+
+static void ensure_valid_head(spms_sub *ring, uint32_t tail, uint32_t head)
+{
+    if (ring->head < head) // ensure safe zone
+    {
+        uint32_t shift = (head - ring->head) + (tail - head) / 16;
+        ring->dropped += shift;
+        ring->head += shift;
+    }
+}
+
+int32_t spms_sub_ensure_valid_cur_pos(spms_sub *sub)
+{
+    uint32_t head, tail;
+    __atomic_load(&sub->msg_ring->tail, &tail, __ATOMIC_ACQUIRE); // sync with producer
+    __atomic_load(&sub->msg_ring->head, &head, __ATOMIC_RELAXED);
+    ensure_valid_head(sub, tail, head);
+    return 0;
+}
+
 int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len, struct spms_msg_info *info, uint32_t timeout_ms)
 {
     while (1)
     {
-        uint32_t tail, idx;
+        uint32_t head, tail, idx;
         __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
-        if (tail - ring->head > ring->safe_zone) // ensure safe zone
-        {
-            uint32_t shift = (tail - ring->head) - ring->safe_zone;
-            ring->dropped += shift;
-            ring->head += shift;
-        }
+        __atomic_load(&ring->msg_ring->head, &head, __ATOMIC_RELAXED);
+        ensure_valid_head(ring, tail, head);
 
         // skip nil packets
         while (ring->head < tail && (&ring->msgs[ring->head & ring->msg_ring->mask])->is_nil != 0)
@@ -532,10 +565,8 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         }
         struct spms_msg *msg = &ring->msgs[ring->head & ring->msg_ring->mask];
         uint32_t len = 0;
-        uint8_t ver = 0;
         uint64_t offset = 0;
 
-        __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
         __atomic_load(&msg->offset, &offset, __ATOMIC_RELAXED);
         __atomic_load(&msg->len, &len, __ATOMIC_RELAXED);
         if (info)
@@ -545,21 +576,19 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         }
         *out_addr = (uint8_t *)ring->buf + offset;
         *out_len = len;
-        return ver;
+
+        // We need to verify the position to guarantee that the message is valid
+        if (spms_sub_verify_cur_pos(ring) == 0)
+            return 0;
     }
 }
 
-int32_t spms_sub_finalize_read_buf(spms_sub *ring, int32_t version)
+int32_t spms_sub_finalize_read_buf(spms_sub *sub)
 {
-    struct spms_msg *msg = &ring->msgs[ring->head & ring->msg_ring->mask];
-    uint8_t ver = 0;
-    uint32_t tail = 0;
-
-    // we don't really need the tail, but we need to sync with the writer
-    __atomic_load(&ring->msg_ring->tail, &tail, __ATOMIC_ACQUIRE);
-    __atomic_load(&msg->ver, &ver, __ATOMIC_RELAXED);
-    ++ring->head;
-    return (int32_t)ver == version ? 0 : -1;
+    int32_t result = spms_sub_verify_cur_pos(sub);
+    // whether we fail or not, we always move forward
+    ++sub->head;
+    return result;
 }
 
 int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms)
@@ -568,12 +597,12 @@ int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_m
     {
         const void *ptr = NULL;
         size_t ptr_len = 0;
-        int32_t ver = spms_sub_get_read_buf(ring, &ptr, &ptr_len, info, timeout_ms);
-        if (ver < 0 || ptr_len > *len)
+        int32_t ret = spms_sub_get_read_buf(ring, &ptr, &ptr_len, info, timeout_ms);
+        if (ret < 0 || ptr_len > *len)
             return -1;
 
         memcpy(addr, ptr, ptr_len);
-        if (spms_sub_finalize_read_buf(ring, ver) == 0)
+        if (spms_sub_finalize_read_buf(ring) == 0)
         {
             *len = ptr_len;
             return 0;
