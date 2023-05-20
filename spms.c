@@ -222,7 +222,6 @@ static void spms_pub_release_msg_from_head(spms_pub *ring)
 
 static void spms_pub_ensure_avail_buffer(spms_pub *ring, size_t len)
 {
-    uint32_t n = 0;
     uint64_t buffer_capacity = ring->buf_ring->length;
     uint64_t msg_capacity = ring->msg_ring->entries;
     while ((buffer_capacity - (ring->buf_ring->tail - ring->buf_ring->head) < len) || (msg_capacity == (ring->msg_ring->tail - ring->msg_ring->head)))
@@ -442,8 +441,7 @@ int32_t spms_sub_get_latest_pos(spms_sub *ring, uint32_t *pos)
 
 int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos)
 {
-    uint32_t tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire);
-    uint32_t thead = atomic_load_explicit(&sub->msg_ring->head, memory_order_relaxed);
+    (void)atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire); // sync with producer
     *pos = atomic_load_explicit(&sub->msg_ring->last_key, memory_order_relaxed);
     return verify_pos(sub, *pos);
 }
@@ -489,7 +487,6 @@ int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
 
 int32_t spms_sub_get_ts_by_pos(spms_sub *sub, uint64_t *ts, uint32_t pos)
 {
-    uint32_t head = 0;
     struct spms_msg *msg = &sub->msgs[pos & sub->msg_ring->mask];
     *ts = atomic_load_explicit(&msg->ts, memory_order_relaxed);
     return verify_pos(sub, pos);
@@ -535,9 +532,8 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
 {
     while (1)
     {
-        uint32_t head, tail, idx;
-        tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
-        head = atomic_load_explicit(&ring->msg_ring->head, memory_order_relaxed);
+        uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
+        uint32_t head = atomic_load_explicit(&ring->msg_ring->head, memory_order_relaxed);
         ensure_valid_head(ring, tail, head);
 
         // skip nil packets
