@@ -1,15 +1,16 @@
+#ifdef __linux__
+#define CV_USE_FUTEX
+#define _GNU_SOURCE
+#elif __APPLE__
+#define CV_USE_ULOCK
+#endif
+
 #include "spms.h"
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
 #include <stdalign.h>
 #include <stdatomic.h>
-
-#ifdef __linux__
-#define CV_USE_FUTEX 1
-#elif __APPLE__
-#define CV_USE_ULOCK 1
-#endif
 
 #ifdef CV_USE_FUTEX
 #include <sys/syscall.h>
@@ -18,6 +19,7 @@
 #include <linux/futex.h>
 #include <limits.h>
 #elif CV_USE_ULOCK
+
 extern int __ulock_wait(uint32_t operation, void *addr, uint64_t value,
                         uint32_t timeout);
 extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
