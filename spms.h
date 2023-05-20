@@ -4,9 +4,31 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/** SPMS_ERROR_AGAIN
+ * @brief The ring buffer empty, try again later
+ */
 #define SPMS_ERROR_AGAIN -1
-#define SPMS_ERROR_EXPIRED -2
-#define SPMS_ERROR_INVALID -3
+
+/** SPMS_ERROR_INVALID_POS
+ * @brief The current read position is invalid, probably because it was overwritten
+ */
+#define SPMS_ERROR_INVALID_POS -2
+
+/** SPMS_ERROR_INVALID_ARG
+ * @brief An invalid argument was passed to a function
+ */
+#define SPMS_ERROR_INVALID_ARG -3
+
+/** SPMS_ERROR_OS
+ * @brief An error occurred in the underlying OS
+ * @note errno will be set if this error is returned
+ */
+#define SPMS_ERROR_OS -4
+
+/** SPMS_ERROR_NOT_AVAILABLE
+ * @brief The requested inforation is not available
+ */
+#define SPMS_ERROR_NOT_AVAILABLE -5
 
 typedef struct spms_pub spms_pub;
 typedef struct spms_sub spms_sub;
