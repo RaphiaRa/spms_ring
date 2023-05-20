@@ -65,12 +65,12 @@ static const size_t test_packet_count = 10 * 1000;
 
 static int test_write(spms_pub *pub)
 {
-    for (int i = 0; i < test_packet_count; i++)
+    for (size_t i = 0; i < test_packet_count; i++)
     {
         void *addr;
         size_t blocks = test_blocks_per_msg[i % (sizeof(test_blocks_per_msg) / sizeof(test_blocks_per_msg[0]))];
         TEST(spms_pub_get_write_buf(pub, &addr, blocks * sizeof(test_sequence)) == 0);
-        for (int j = 0; j < blocks; j++)
+        for (size_t j = 0; j < blocks; j++)
             memcpy(addr + j * sizeof(test_sequence), test_sequence, sizeof(test_sequence));
         TEST(spms_pub_flush_write_buf(pub, addr, blocks * sizeof(test_sequence), NULL) == 0);
         usleep(50);
@@ -83,13 +83,13 @@ static int test_read(void *buf)
 {
     spms_sub *sub;
     TEST(spms_sub_create(&sub, buf) == 0);
-    for (int i = 0; i < test_packet_count; i++)
+    for (size_t i = 0; i < test_packet_count; i++)
     {
         char buf[128 * 1024];
         size_t len = sizeof(buf);
         while (spms_sub_read_msg(sub, buf, &len, NULL, 1000) == -1)
             return 0;
-        for (int j = 0; j < len; j++)
+        for (size_t j = 0; j < len; j++)
             TEST(buf[j] == test_sequence[j % sizeof(test_sequence)]);
     }
     spms_sub_free(sub);
@@ -105,7 +105,6 @@ static void *test_read_thread(void *args)
 
 static int test_spms_read_write_consistency()
 {
-    pthread_t write_thread;
     pthread_t read_threads[4];
     struct read_thread_args args[4] = {0};
 
