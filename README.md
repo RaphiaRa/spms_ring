@@ -30,7 +30,7 @@ spms_pub_create(&pub, buffer, &config);
 ```
 Write data to the ring
 ```c
-spms_pub_write(pub, data, data_len, NULL);
+spms_pub_write_msg(pub, data, data_len, NULL);
 ```
 
 Setup the subscriber
@@ -42,7 +42,7 @@ spms_sub_create(&sub, buffer);
 Read data from the ring
 ```c
 uint8_t data[1024];
-spms_sub_read(sub, data, sizeof(data), NULL);
+spms_sub_read_msg(sub, data, sizeof(data), NULL, 0);
 ```
 
 ### Examples
