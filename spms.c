@@ -1,7 +1,6 @@
 #include "spms.h"
 #include <stdlib.h>
 #include <assert.h>
-#include <unistd.h>
 #include <string.h>
 #include <stdalign.h>
 #include <stdatomic.h>
