@@ -1,8 +1,8 @@
 #ifdef __linux__
-#define CV_USE_FUTEX
+#define CV_USE_FUTEX 1
 #define _GNU_SOURCE
 #elif __APPLE__
-#define CV_USE_ULOCK
+#define CV_USE_ULOCK 1
 #endif
 
 #include "spms.h"
@@ -319,7 +319,7 @@ int32_t spms_pub_flush_write_buf(spms_pub *ring, void *addr, size_t len, const s
     struct spms_msg_info default_info = {0, 0};
     if (!info)
         info = &default_info;
-    spms_pub_flush_write_buffer_ex(ring, (uint8_t *)addr - (uint8_t *)ring->buf, len, info);
+    spms_pub_flush_write_buffer_ex(ring, (uint64_t)((uint8_t *)addr - (uint8_t *)ring->buf), len, info);
     return 0;
 }
 
@@ -550,8 +550,8 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
 #ifdef CV_USE_FUTEX
             struct timespec ts;
             uint32_t seconds = timeout_ms / 1000;
-            ts.tv_nsec = (timeout_ms - seconds * 1000) * 1000000;
-            ts.tv_sec = seconds;
+            ts.tv_nsec = (long) (timeout_ms - seconds * 1000) * 1000000;
+            ts.tv_sec = (time_t) seconds;
             syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAIT, tail, &ts);
 #elif CV_USE_ULOCK
             __ulock_wait(1, &ring->msg_ring->tail, tail, timeout_ms * 1000);
@@ -577,7 +577,7 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
     }
 }
 
-int32_t spms_sub_finalize_read_buf(spms_sub *sub)
+int32_t spms_sub_finalize_read(spms_sub *sub)
 {
     int32_t result = spms_sub_verify_cur_pos(sub);
     if (result == 0)
@@ -598,7 +598,7 @@ int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_m
             return SPMS_ERROR_INVALID_ARG;
 
         memcpy(addr, ptr, ptr_len);
-        if (spms_sub_finalize_read_buf(ring) == 0)
+        if (spms_sub_finalize_read(ring) == 0)
         {
             *len = ptr_len;
             return 0;
