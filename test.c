@@ -91,8 +91,12 @@ static int test_read(void *buf)
     {
         char buf[128 * 1024];
         size_t len = sizeof(buf);
-        while (spms_sub_read_msg(sub, buf, &len, NULL, 1000) == -1)
+        int ret = 0;
+        if ((ret = spms_sub_read_msg(sub, buf, &len, NULL, 1000)) == SPMS_ERROR_TIMEOUT)
             return 0;
+        if (ret != 0)
+            return ret;
+
         for (size_t j = 0; j < len; j++)
             TEST(buf[j] == test_sequence[j % sizeof(test_sequence)]);
     }
