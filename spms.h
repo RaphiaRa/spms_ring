@@ -30,6 +30,11 @@
  */
 #define SPMS_ERROR_NOT_AVAILABLE -5
 
+/** SPMS_ERROR_TIMEOUT
+ * @brief A timeout occurred
+ */
+#define SPMS_ERROR_TIMEOUT -6
+
 typedef struct spms_pub spms_pub;
 typedef struct spms_sub spms_sub;
 
@@ -96,6 +101,21 @@ void spms_sub_free(spms_sub *ring);
  */
 int32_t spms_pub_write_msg(spms_pub *pub, const void *addr, size_t len, const struct spms_msg_info *info);
 
+struct spms_ovec
+{
+    const void *addr;
+    size_t len;
+};
+
+/** spms_pub_writev_msg
+ * @brief Same as spms_pub_write_msg, but allows writing multiple buffers at once
+ * @param pub The publisher to write to
+ * @param ovec The buffers to write
+ * @param len The number of buffers to write
+ * @return 0 on success, error code on failure
+ */
+int32_t spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, const struct spms_msg_info *info);
+
 /** spms_sub_read_msg
  * @brief Read a message from the ring buffer. If the ring is empty, this function will block
  * until a message is available or the timeout expires. On success, the message is guaranteed to be read completely.
@@ -106,6 +126,14 @@ int32_t spms_pub_write_msg(spms_pub *pub, const void *addr, size_t len, const st
  * @return 0 on success, error code on failure
  */
 int32_t spms_sub_read_msg(spms_sub *sub, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms);
+
+/** spms_wait_readable
+ * @brief Wait until the ring buffer is readable
+ * @param sub The subscriber
+ * @param timeout_ms The timeout in milliseconds.
+ * @return 0 on success, error code on failure
+ */
+int32_t spms_wait_readable(spms_sub *sub, uint32_t timeout_ms);
 
 /** Control API **/
 

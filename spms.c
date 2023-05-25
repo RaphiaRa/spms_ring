@@ -334,6 +334,22 @@ int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len, const s
     return 0;
 }
 
+int32_t spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, const struct spms_msg_info *info)
+{
+    int32_t ret = 0;
+    void *ptr = NULL;
+    if ((ret = spms_pub_get_write_buf(pub, &ptr, len)) < 0)
+        return ret;
+    size_t offset = 0;
+    for (size_t i = 0; i < len; ++i)
+    {
+        memcpy((uint8_t *)ptr + offset, ovec[i].addr, ovec[i].len);
+        offset += ovec[i].len;
+    }
+    spms_pub_flush_write_buf(pub, ptr, len, info);
+    return 0;
+}
+
 void spms_pub_free(spms_pub *ring)
 {
     free(ring);
@@ -530,6 +546,22 @@ int32_t spms_sub_ensure_valid_cur_pos(spms_sub *sub)
     return 0;
 }
 
+static int32_t spms_wait_tail_changed(spms_sub *sub, uint32_t tail, uint32_t timeout_ms)
+{
+#ifdef CV_USE_FUTEX
+    struct timespec ts;
+    uint32_t seconds = timeout_ms / 1000;
+    ts.tv_nsec = (long)(timeout_ms - seconds * 1000) * 1000000;
+    ts.tv_sec = (time_t)seconds;
+    if (syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAIT, tail, &ts) < 0)
+        return SPMS_ERROR_OS;
+#elif CV_USE_ULOCK
+    if (__ulock_wait(1, &sub->msg_ring->tail, tail, timeout_ms * 1000) < 0)
+        return SPMS_ERROR_OS;
+#endif
+    return 0;
+}
+
 int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len, struct spms_msg_info *info, uint32_t timeout_ms)
 {
     while (1)
@@ -539,23 +571,18 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         ensure_valid_head(ring, tail, head);
 
         // skip nil packets
-        while (ring->head < tail && (&ring->msgs[ring->head & ring->msg_ring->mask])->is_nil != 0)
-        {
+        while (ring->head < tail && (&ring->msgs[ring->head & ring->msg_ring->mask])->is_nil)
             ++ring->head;
-        }
+
         if (ring->head == tail)
         {
-            if (ring->nonblocking || timeout_ms == 0)
+            if (ring->nonblocking)
                 return SPMS_ERROR_AGAIN;
-#ifdef CV_USE_FUTEX
-            struct timespec ts;
-            uint32_t seconds = timeout_ms / 1000;
-            ts.tv_nsec = (long) (timeout_ms - seconds * 1000) * 1000000;
-            ts.tv_sec = (time_t) seconds;
-            syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAIT, tail, &ts);
-#elif CV_USE_ULOCK
-            __ulock_wait(1, &ring->msg_ring->tail, tail, timeout_ms * 1000);
-#endif
+            if (timeout_ms == 0)
+                return SPMS_ERROR_TIMEOUT;
+            int32_t ret = spms_wait_tail_changed(ring, tail, timeout_ms);
+            if (ret < 0)
+                return ret;
             timeout_ms = 0; // don't wait again
             continue;
         }
@@ -603,5 +630,30 @@ int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_m
             *len = ptr_len;
             return 0;
         }
+    }
+}
+
+int32_t spms_wait_readable(spms_sub *sub, uint32_t timeout_ms)
+{
+    while (1)
+    {
+        uint32_t tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire);
+        uint32_t head = atomic_load_explicit(&sub->msg_ring->head, memory_order_relaxed);
+        ensure_valid_head(sub, tail, head);
+
+        // skip nil packets
+        while (sub->head < tail && (&sub->msgs[sub->head & sub->msg_ring->mask])->is_nil)
+            ++sub->head;
+
+        if (sub->head < tail)
+            return 0;
+        if (sub->nonblocking)
+            return SPMS_ERROR_AGAIN;
+        if (timeout_ms == 0)
+            return SPMS_ERROR_TIMEOUT;
+        int32_t ret = spms_wait_tail_changed(sub, tail, timeout_ms);
+        if (ret < 0)
+            return ret;
+        timeout_ms = 0; // don't wait again
     }
 }
