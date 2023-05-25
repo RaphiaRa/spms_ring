@@ -553,11 +553,9 @@ static int32_t spms_wait_tail_changed(spms_sub *sub, uint32_t tail, uint32_t tim
     uint32_t seconds = timeout_ms / 1000;
     ts.tv_nsec = (long)(timeout_ms - seconds * 1000) * 1000000;
     ts.tv_sec = (time_t)seconds;
-    if (syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAIT, tail, &ts) < 0)
-        return SPMS_ERROR_OS;
+    syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAIT, tail, &ts);
 #elif CV_USE_ULOCK
-    if (__ulock_wait(1, &sub->msg_ring->tail, tail, timeout_ms * 1000) < 0)
-        return SPMS_ERROR_OS;
+    __ulock_wait(1, &sub->msg_ring->tail, tail, timeout_ms * 1000);
 #endif
     return 0;
 }
