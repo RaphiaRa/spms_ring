@@ -237,10 +237,7 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
     uint32_t tail = ring->msg_ring->tail;
     uint32_t idx = tail & ring->msg_ring->mask;
     struct spms_msg *msg = &ring->msgs[idx];
-    if (msg->len)
-    {
-        spms_pub_release_msg(ring, msg);
-    }
+    assert((msg->len == 0 || msg->is_nil) && "Message must be empty");
     assert((ring->buf_ring->tail & ring->buf_ring->mask) == offset && "Flushed buffer must match ring");
     ring->buf_ring->tail += (uint64_t)len;
     msg->offset = offset;
@@ -268,6 +265,28 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
     }
 }
 
+static int32_t pub_has_valid_setup(spms_pub *ring)
+{
+    uint32_t msg_tail = ring->msg_ring->tail;
+    uint64_t buf_tail = ring->buf_ring->tail;
+    uint64_t buf_head = ring->buf_ring->head;
+    for (uint32_t msg_head = ring->msg_ring->head; msg_head < msg_tail; ++msg_head)
+    {
+        uint32_t idx = msg_head & ring->msg_ring->mask;
+        struct spms_msg *msg = &ring->msgs[idx];
+        if (!msg->is_nil)
+        {
+            uint64_t buf_offset = buf_head & ring->buf_ring->mask;
+            if (msg->offset != buf_offset)
+                return SPMS_ERROR_INVALID_STATE;
+            buf_head += msg->len;
+            if (buf_head > buf_tail)
+                return SPMS_ERROR_INVALID_STATE;
+        }
+    }
+    return 0;
+}
+
 /** spms_pub public interface **/
 
 int32_t spms_pub_create(spms_pub **out, void *mem, struct spms_config *config)
@@ -279,21 +298,27 @@ int32_t spms_pub_create(spms_pub **out, void *mem, struct spms_config *config)
     if (!p)
         return SPMS_ERROR_OS;
 
+    int32_t ret = 0;
     spms_ring *ring = (spms_ring *)mem;
     if (ring->init_code != SPMS_INIT_CODE) // first time initialization
     {
-        int32_t ret = 0;
         if ((ret = spms_ring_mem_init(mem, config)) < 0)
         {
             free(p);
             return ret;
         }
     }
+
     p->nonblocking = ring->nonblocking;
     p->msg_ring = (spms_msg_ring *)((uint8_t *)mem + ring->msg_ring_offset);
     p->msgs = (struct spms_msg *)((uint8_t *)mem + ring->msg_ring_offset + SPMS_MSG_RING_HEADER_LENGTH);
     p->buf_ring = (spms_buf_ring *)((uint8_t *)mem + ring->buf_ring_offset);
     p->buf = (uint8_t *)mem + ring->buf_ring_offset + SPMS_BUF_RING_HEADER_LENGTH;
+    if ((ret = pub_has_valid_setup(p)) < 0)
+    {
+        free(p);
+        return ret;
+    }
     *out = p;
     return 0;
 }

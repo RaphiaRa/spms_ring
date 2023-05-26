@@ -35,6 +35,12 @@
  */
 #define SPMS_ERROR_TIMEOUT -6
 
+/** SPMS_ERROR_INVALID_STATE
+ * @brief The ring buffer is in an invalid state
+ * and can't be used anymore
+ */
+#define SPMS_ERROR_INVALID_STATE -7
+
 typedef struct spms_pub spms_pub;
 typedef struct spms_sub spms_sub;
 
@@ -84,6 +90,20 @@ struct spms_msg_info
 };
 
 /** Constructors and destructors **/
+
+/** spms_pub_create
+ * @brief Create a publisher
+ * @param ring (out) The publisher
+ * @param mem The memory region to create the publisher in
+ * @param config The config to use
+ * @return 0 on success, error code on failure
+ * Possible error codes:
+ * SPMS_ERROR_INVALID_STATE: This happens if the passed memory region already
+ * contains a ring buffer structure that is not in a valid state.
+ * This could, for example, happen if a newly created memory region was not zeroed before use.
+ * @note The memory region must be at least spms_mem_needed_size(config) bytes long
+ * @note The memory region must be aligned to a multiple of alignof(max_align_t)
+ */
 int32_t spms_pub_create(spms_pub **ring, void *mem, struct spms_config *config);
 int32_t spms_sub_create(spms_sub **ring, void *mem);
 void spms_pub_free(spms_pub *ring);
