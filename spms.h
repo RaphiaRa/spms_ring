@@ -62,7 +62,7 @@ struct spms_config
      * @brief Whether the ring buffer should be nonblocking
      * @note If nonblocking is set, then reading from the ring buffer will not block when it is empty.
      */
-    int8_t nonblocking;
+    uint8_t nonblocking;
 };
 
 /** spms_ring_needed_size
