@@ -363,7 +363,10 @@ int32_t spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, c
 {
     int32_t ret = 0;
     void *ptr = NULL;
-    if ((ret = spms_pub_get_write_buf(pub, &ptr, len)) < 0)
+    size_t total_len = 0;
+    for (size_t i = 0; i < len; ++i)
+        total_len += ovec->len;
+    if ((ret = spms_pub_get_write_buf(pub, &ptr, total_len)) < 0)
         return ret;
     size_t offset = 0;
     for (size_t i = 0; i < len; ++i)
@@ -578,7 +581,7 @@ static int32_t spms_wait_tail_changed(spms_sub *sub, uint32_t tail, uint32_t tim
     uint32_t seconds = timeout_ms / 1000;
     ts.tv_nsec = (long)(timeout_ms - seconds * 1000) * 1000000;
     ts.tv_sec = (time_t)seconds;
-    syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAIT, tail, &ts);
+    syscall(SYS_futex, &sub->msg_ring->tail, FUTEX_WAIT, tail, &ts);
 #elif CV_USE_ULOCK
     __ulock_wait(1, &sub->msg_ring->tail, tail, timeout_ms * 1000);
 #endif
