@@ -147,13 +147,13 @@ int32_t spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, c
  */
 int32_t spms_sub_read_msg(spms_sub *sub, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms);
 
-/** spms_wait_readable
+/** spms_sub_wait_readable
  * @brief Wait until the ring buffer is readable
  * @param sub The subscriber
  * @param timeout_ms The timeout in milliseconds.
  * @return 0 on success, error code on failure
  */
-int32_t spms_wait_readable(spms_sub *sub, uint32_t timeout_ms);
+int32_t spms_sub_wait_readable(spms_sub *sub, uint32_t timeout_ms);
 
 /** Control API **/
 

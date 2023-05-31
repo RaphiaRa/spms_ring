@@ -365,7 +365,7 @@ int32_t spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, c
     void *ptr = NULL;
     size_t total_len = 0;
     for (size_t i = 0; i < len; ++i)
-        total_len += ovec->len;
+        total_len += ovec[i].len;
     if ((ret = spms_pub_get_write_buf(pub, &ptr, total_len)) < 0)
         return ret;
     size_t offset = 0;
@@ -374,7 +374,7 @@ int32_t spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, c
         memcpy((uint8_t *)ptr + offset, ovec[i].addr, ovec[i].len);
         offset += ovec[i].len;
     }
-    spms_pub_flush_write_buf(pub, ptr, len, info);
+    spms_pub_flush_write_buf(pub, ptr, total_len, info);
     return 0;
 }
 
@@ -659,7 +659,7 @@ int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_m
     }
 }
 
-int32_t spms_wait_readable(spms_sub *sub, uint32_t timeout_ms)
+int32_t spms_sub_wait_readable(spms_sub *sub, uint32_t timeout_ms)
 {
     while (1)
     {
