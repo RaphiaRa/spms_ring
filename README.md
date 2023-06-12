@@ -24,7 +24,9 @@ Setup the memory for the ring buffer and the publisher
 struct spms_config config = {0};
 config.buf_length = 1024 * 1024; // buffer size
 config.msg_entries = 1024;       // max number of messages in the buffer
-buffer = calloc(1, spms_ring_mem_needed_size(&config));
+size_t needed_size = 0;
+spms_ring_mem_needed_size(&config, &needed_size);
+buffer = calloc(1, needed_size);
 spms_pub *pub = NULL;
 spms_pub_create(&pub, buffer, &config);
 ```
