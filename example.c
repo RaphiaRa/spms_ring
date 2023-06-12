@@ -28,7 +28,9 @@ static int32_t pub()
 {
     signal(SIGINT, sigint_handler);
     void *mem = NULL;
-    int fd = create_shm(&mem, "test_ring", spms_ring_mem_needed_size(NULL), O_CREAT | O_EXCL);
+    size_t mem_size = 0;
+    spms_ring_mem_needed_size(NULL, &mem_size);
+    int fd = create_shm(&mem, "test_ring", mem_size, O_CREAT | O_EXCL);
     if (fd < 0)
     {
         printf("Failed to create shared memory\n");
@@ -77,7 +79,7 @@ static int32_t sub()
     }
 
     spms_sub *sub = NULL;
-    if (spms_sub_create(&sub, mem) != 0)
+    if (spms_sub_create(&sub, mem) != SPMS_ERR_OK)
     {
         printf("Failed to create publisher\n");
         return -1;
@@ -86,7 +88,7 @@ static int32_t sub()
     uint64_t ts = 0;
     spms_sub_get_latest_ts(sub, &ts);
     uint32_t pos = 0;
-    if (spms_sub_get_latest_key_pos(sub, &pos) == -1)
+    if (spms_sub_get_latest_key_pos(sub, &pos) != SPMS_ERR_OK)
     {
         printf("Failed to get lates key position\n");
         return -1;

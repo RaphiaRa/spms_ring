@@ -84,7 +84,7 @@ static int32_t spms_msg_ring_mem_init(void *mem, size_t msg_count)
 {
     // msg_count must be power of 2
     if ((msg_count & (msg_count - 1)) != 0)
-        return SPMS_ERROR_INVALID_ARG;
+        return SPMS_ERR_INVALID_ARG;
     spms_msg_ring *ring = (spms_msg_ring *)mem;
     ring->entries = msg_count;
     ring->mask = ring->entries - 1;
@@ -117,7 +117,7 @@ static int32_t spms_buf_ring_mem_init(void *mem, size_t size)
 {
     // size must be power of 2
     if ((size & (size - 1)) != 0)
-        return SPMS_ERROR_INVALID_ARG;
+        return SPMS_ERR_INVALID_ARG;
     spms_buf_ring *ring = (spms_buf_ring *)mem;
     ring->length = size;
     ring->mask = ring->length - 1;
@@ -156,21 +156,22 @@ typedef struct spms_ring
     uint8_t nonblocking;
 } spms_ring;
 
-uint64_t spms_ring_mem_needed_size(struct spms_config *config)
+spms_err spms_ring_mem_needed_size(struct spms_config *config, size_t *out)
 {
     if (config == NULL)
         config = &g_default_config;
 
     uint64_t msg_ring_size = spms_msg_ring_mem_size(config->msg_entries);
     uint64_t buf_ring_size = spms_buf_ring_mem_size(config->buf_length);
-    return msg_ring_size + buf_ring_size + SPMS_BUF_RING_HEADER_LENGTH;
+    *out = msg_ring_size + buf_ring_size + SPMS_BUF_RING_HEADER_LENGTH;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_ring_mem_init(void *mem, struct spms_config *config)
+spms_err spms_ring_mem_init(void *mem, struct spms_config *config)
 {
     // mem must be aligned to a multiple of alignof(max_align_t)
     if ((uintptr_t)mem % alignof(max_align_t) != 0)
-        return SPMS_ERROR_INVALID_ARG;
+        return SPMS_ERR_INVALID_ARG;
 
     spms_ring *ring = (spms_ring *)mem;
     if (ring->init_code == SPMS_INIT_CODE)
@@ -188,7 +189,7 @@ int32_t spms_ring_mem_init(void *mem, struct spms_config *config)
     if ((ret = spms_buf_ring_mem_init((void *)((uint8_t *)mem + ring->buf_ring_offset), config->buf_length)) != 0)
         return ret;
     ring->init_code = SPMS_INIT_CODE;
-    return 0;
+    return SPMS_ERR_OK;
 }
 
 /**
@@ -265,7 +266,7 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
     }
 }
 
-static int32_t pub_has_valid_setup(spms_pub *ring)
+static spms_err pub_has_valid_setup(spms_pub *ring)
 {
     uint32_t msg_tail = ring->msg_ring->tail;
     uint64_t buf_tail = ring->buf_ring->tail;
@@ -278,31 +279,31 @@ static int32_t pub_has_valid_setup(spms_pub *ring)
         {
             uint64_t buf_offset = buf_head & ring->buf_ring->mask;
             if (msg->offset != buf_offset)
-                return SPMS_ERROR_INVALID_STATE;
+                return SPMS_ERR_INVALID_STATE;
             buf_head += msg->len;
             if (buf_head > buf_tail)
-                return SPMS_ERROR_INVALID_STATE;
+                return SPMS_ERR_INVALID_STATE;
         }
     }
-    return 0;
+    return SPMS_ERR_OK;
 }
 
 /** spms_pub public interface **/
 
-int32_t spms_pub_create(spms_pub **out, void *mem, struct spms_config *config)
+spms_err spms_pub_create(spms_pub **out, void *mem, struct spms_config *config)
 {
     if ((uintptr_t)mem % alignof(max_align_t) != 0)
-        return SPMS_ERROR_INVALID_ARG;
+        return SPMS_ERR_INVALID_ARG;
 
     spms_pub *p = (spms_pub *)calloc(1, sizeof(spms_pub));
     if (!p)
-        return SPMS_ERROR_OS;
+        return SPMS_ERR_OS;
 
-    int32_t ret = 0;
+    spms_err ret = 0;
     spms_ring *ring = (spms_ring *)mem;
     if (ring->init_code != SPMS_INIT_CODE) // first time initialization
     {
-        if ((ret = spms_ring_mem_init(mem, config)) < 0)
+        if ((ret = spms_ring_mem_init(mem, config)) != SPMS_ERR_OK)
         {
             free(p);
             return ret;
@@ -320,10 +321,10 @@ int32_t spms_pub_create(spms_pub **out, void *mem, struct spms_config *config)
         return ret;
     }
     *out = p;
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len)
+spms_err spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len)
 {
     while (1) // try until we get a suitable buffer
     {
@@ -333,22 +334,22 @@ int32_t spms_pub_get_write_buf(spms_pub *ring, void **addr, size_t len)
         if (buf_len >= len) // got a suitable buffer
         {
             *addr = (uint8_t *)ring->buf + offset;
-            return 0;
+            return SPMS_ERR_OK;
         }
         spms_pub_flush_write_buffer_ex(ring, offset, buf_len, NULL);
     }
 }
 
-int32_t spms_pub_flush_write_buf(spms_pub *ring, void *addr, size_t len, const struct spms_msg_info *info)
+spms_err spms_pub_flush_write_buf(spms_pub *ring, void *addr, size_t len, const struct spms_msg_info *info)
 {
     struct spms_msg_info default_info = {0, 0};
     if (!info)
         info = &default_info;
     spms_pub_flush_write_buffer_ex(ring, (uint64_t)((uint8_t *)addr - (uint8_t *)ring->buf), len, info);
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len, const struct spms_msg_info *info)
+spms_err spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len, const struct spms_msg_info *info)
 {
     int32_t ret = 0;
     void *ptr = NULL;
@@ -356,16 +357,18 @@ int32_t spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len, const s
         return ret;
     memcpy(ptr, addr, len);
     spms_pub_flush_write_buf(ring, ptr, len, info);
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, const struct spms_msg_info *info)
+spms_err spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, const struct spms_msg_info *info)
 {
-    int32_t ret = 0;
     void *ptr = NULL;
     size_t total_len = 0;
+
     for (size_t i = 0; i < len; ++i)
         total_len += ovec[i].len;
+
+    spms_err ret = SPMS_ERR_OK;
     if ((ret = spms_pub_get_write_buf(pub, &ptr, total_len)) < 0)
         return ret;
     size_t offset = 0;
@@ -375,7 +378,7 @@ int32_t spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, c
         offset += ovec[i].len;
     }
     spms_pub_flush_write_buf(pub, ptr, total_len, info);
-    return 0;
+    return SPMS_ERR_OK;
 }
 
 void spms_pub_free(spms_pub *ring)
@@ -399,25 +402,25 @@ struct spms_sub
     uint8_t ver;
 };
 
-static int32_t verify_pos(spms_sub *sub, uint32_t pos)
+static spms_err verify_pos(spms_sub *sub, uint32_t pos)
 {
     uint32_t tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire); // sync with producer
     uint32_t head = atomic_load_explicit(&sub->msg_ring->head, memory_order_relaxed);
-    return head <= pos && pos < tail ? 0 : SPMS_ERROR_INVALID_POS;
+    return head <= pos && pos < tail ? SPMS_ERR_OK : SPMS_ERR_INVALID_POS;
 }
 
-int32_t spms_sub_create(spms_sub **out, void *mem)
+spms_err spms_sub_create(spms_sub **out, void *mem)
 {
     if ((uintptr_t)mem % alignof(max_align_t) != 0)
-        return SPMS_ERROR_INVALID_ARG;
+        return SPMS_ERR_INVALID_ARG;
 
     spms_ring *ring = (spms_ring *)mem;
     if (ring->init_code != SPMS_INIT_CODE) // not initlized
-        return SPMS_ERROR_INVALID_ARG;
+        return SPMS_ERR_INVALID_ARG;
 
     spms_sub *p = (spms_sub *)calloc(1, sizeof(spms_sub));
     if (!p)
-        return SPMS_ERROR_OS;
+        return SPMS_ERR_OS;
 
     p->nonblocking = ring->nonblocking;
     p->msg_ring = (spms_msg_ring *)((uint8_t *)mem + ring->msg_ring_offset);
@@ -426,7 +429,7 @@ int32_t spms_sub_create(spms_sub **out, void *mem)
     p->buf = (struct spms_buf *)((uint8_t *)mem + ring->buf_ring_offset + SPMS_BUF_RING_HEADER_LENGTH);
     spms_sub_rewind(p);
     *out = p;
-    return 0;
+    return SPMS_ERR_OK;
 }
 
 void spms_sub_free(spms_sub *ring)
@@ -434,23 +437,23 @@ void spms_sub_free(spms_sub *ring)
     free(ring);
 }
 
-int32_t spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count)
+spms_err spms_sub_get_dropped_count(spms_sub *sub, uint64_t *count)
 {
     *count = sub->dropped;
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_sub_rewind(spms_sub *ring)
+spms_err spms_sub_rewind(spms_sub *ring)
 {
     uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_relaxed);
     if (tail == 0)
         ring->head = 0;
     else
         ring->head = (tail - 1);
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_sub_get_pos_by_ts(spms_sub *ring, uint32_t *pos, uint64_t ts)
+spms_err spms_sub_get_pos_by_ts(spms_sub *ring, uint32_t *pos, uint64_t ts)
 {
     uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
     uint32_t head = atomic_load_explicit(&ring->msg_ring->head, memory_order_relaxed);
@@ -465,10 +468,10 @@ int32_t spms_sub_get_pos_by_ts(spms_sub *ring, uint32_t *pos, uint64_t ts)
             return verify_pos(ring, tail);
         }
     }
-    return SPMS_ERROR_NOT_AVAILABLE;
+    return SPMS_ERR_NOT_AVAILABLE;
 }
 
-int32_t spms_sub_get_latest_ts(spms_sub *ring, uint64_t *ts)
+spms_err spms_sub_get_latest_ts(spms_sub *ring, uint64_t *ts)
 {
     uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
     struct spms_msg *msg = &ring->msgs[(tail - 1) & ring->msg_ring->mask];
@@ -476,28 +479,29 @@ int32_t spms_sub_get_latest_ts(spms_sub *ring, uint64_t *ts)
     return verify_pos(ring, tail - 1);
 }
 
-int32_t spms_sub_get_latest_pos(spms_sub *ring, uint32_t *pos)
+spms_err spms_sub_get_latest_pos(spms_sub *ring, uint32_t *pos)
 {
     uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
     if (tail == 0)
-        return SPMS_ERROR_NOT_AVAILABLE;
+        return SPMS_ERR_NOT_AVAILABLE;
     *pos = (tail - 1);
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos)
+spms_err spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos)
 {
     (void)atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire); // sync with producer
     *pos = atomic_load_explicit(&sub->msg_ring->last_key, memory_order_relaxed);
     return verify_pos(sub, *pos);
 }
 
-void spms_sub_get_cur_pos(spms_sub *ring, uint32_t *pos)
+spms_err spms_sub_get_cur_pos(spms_sub *ring, uint32_t *pos)
 {
     *pos = ring->head;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
+spms_err spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
 {
     uint32_t pos = 0;
     int32_t ret = 0;
@@ -508,7 +512,7 @@ int32_t spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
     return verify_pos(sub, pos);
 }
 
-int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
+spms_err spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
 {
     uint32_t pos = 0;
     int32_t ret = 0;
@@ -528,28 +532,28 @@ int32_t spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
         }
         ++pos;
     }
-    return SPMS_ERROR_NOT_AVAILABLE;
+    return SPMS_ERR_NOT_AVAILABLE;
 }
 
-int32_t spms_sub_get_ts_by_pos(spms_sub *sub, uint64_t *ts, uint32_t pos)
+spms_err spms_sub_get_ts_by_pos(spms_sub *sub, uint64_t *ts, uint32_t pos)
 {
     struct spms_msg *msg = &sub->msgs[pos & sub->msg_ring->mask];
     *ts = atomic_load_explicit(&msg->ts, memory_order_relaxed);
     return verify_pos(sub, pos);
 }
 
-int32_t spms_sub_set_pos(spms_sub *ring, uint32_t pos)
+spms_err spms_sub_set_pos(spms_sub *ring, uint32_t pos)
 {
     ring->head = pos;
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_sub_verify_cur_pos(spms_sub *sub)
+spms_err spms_sub_verify_cur_pos(spms_sub *sub)
 {
     return verify_pos(sub, sub->head);
 }
 
-int32_t spms_sub_get_and_verify_cur_pos(spms_sub *sub, uint32_t *pos)
+spms_err spms_sub_get_and_verify_cur_pos(spms_sub *sub, uint32_t *pos)
 {
     *pos = sub->head;
     return spms_sub_verify_cur_pos(sub);
@@ -565,16 +569,16 @@ static void ensure_valid_head(spms_sub *ring, uint32_t tail, uint32_t head)
     }
 }
 
-int32_t spms_sub_ensure_valid_cur_pos(spms_sub *sub)
+spms_err spms_sub_ensure_valid_cur_pos(spms_sub *sub)
 {
     uint32_t head, tail;
     tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire); // sync with producer
     head = atomic_load_explicit(&sub->msg_ring->head, memory_order_relaxed);
     ensure_valid_head(sub, tail, head);
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-static int32_t spms_wait_tail_changed(spms_sub *sub, uint32_t tail, uint32_t timeout_ms)
+static spms_err spms_wait_tail_changed(spms_sub *sub, uint32_t tail, uint32_t timeout_ms)
 {
 #ifdef CV_USE_FUTEX
     struct timespec ts;
@@ -585,10 +589,10 @@ static int32_t spms_wait_tail_changed(spms_sub *sub, uint32_t tail, uint32_t tim
 #elif CV_USE_ULOCK
     __ulock_wait(1, &sub->msg_ring->tail, tail, timeout_ms * 1000);
 #endif
-    return 0;
+    return SPMS_ERR_OK;
 }
 
-int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len, struct spms_msg_info *info, uint32_t timeout_ms)
+spms_err spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len, struct spms_msg_info *info, uint32_t timeout_ms)
 {
     while (1)
     {
@@ -603,9 +607,9 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         if (ring->head == tail)
         {
             if (ring->nonblocking)
-                return SPMS_ERROR_AGAIN;
+                return SPMS_ERR_AGAIN;
             if (timeout_ms == 0)
-                return SPMS_ERROR_TIMEOUT;
+                return SPMS_ERR_TIMEOUT;
             int32_t ret = spms_wait_tail_changed(ring, tail, timeout_ms);
             if (ret < 0)
                 return ret;
@@ -625,41 +629,41 @@ int32_t spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out
         *out_len = len;
 
         // We need to verify the position to guarantee that the message is valid
-        if (spms_sub_verify_cur_pos(ring) == 0)
-            return 0;
+        if (spms_sub_verify_cur_pos(ring) == SPMS_ERR_OK)
+            return SPMS_ERR_OK;
     }
 }
 
-int32_t spms_sub_finalize_read(spms_sub *sub)
+spms_err spms_sub_finalize_read(spms_sub *sub)
 {
-    int32_t result = spms_sub_verify_cur_pos(sub);
+    spms_err result = spms_sub_verify_cur_pos(sub);
     if (result == 0)
         ++sub->head;
     return result;
 }
 
-int32_t spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms)
+spms_err spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms)
 {
     while (1)
     {
         const void *ptr = NULL;
         size_t ptr_len = 0;
-        int32_t ret = spms_sub_get_read_buf(ring, &ptr, &ptr_len, info, timeout_ms);
-        if (ret < 0)
+        spms_err ret = spms_sub_get_read_buf(ring, &ptr, &ptr_len, info, timeout_ms);
+        if (ret != SPMS_ERR_OK)
             return ret;
         if (ptr_len > *len)
-            return SPMS_ERROR_INVALID_ARG;
+            return SPMS_ERR_INVALID_ARG;
 
         memcpy(addr, ptr, ptr_len);
         if (spms_sub_finalize_read(ring) == 0)
         {
             *len = ptr_len;
-            return 0;
+            return SPMS_ERR_OK;
         }
     }
 }
 
-int32_t spms_sub_wait_readable(spms_sub *sub, uint32_t timeout_ms)
+spms_err spms_sub_wait_readable(spms_sub *sub, uint32_t timeout_ms)
 {
     while (1)
     {
@@ -672,13 +676,13 @@ int32_t spms_sub_wait_readable(spms_sub *sub, uint32_t timeout_ms)
             ++sub->head;
 
         if (sub->head < tail)
-            return 0;
+            return SPMS_ERR_OK;
         if (sub->nonblocking)
-            return SPMS_ERROR_AGAIN;
+            return SPMS_ERR_AGAIN;
         if (timeout_ms == 0)
-            return SPMS_ERROR_TIMEOUT;
-        int32_t ret = spms_wait_tail_changed(sub, tail, timeout_ms);
-        if (ret < 0)
+            return SPMS_ERR_TIMEOUT;
+        spms_err ret = spms_wait_tail_changed(sub, tail, timeout_ms);
+        if (ret != SPMS_ERR_OK)
             return ret;
         timeout_ms = 0; // don't wait again
     }
