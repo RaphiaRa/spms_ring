@@ -138,7 +138,22 @@ struct spms_ovec
  * @param len The number of buffers to write
  * @return SPMS_ERR_OK on success, error code on failure
  */
-spms_err spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, const struct spms_msg_info *info);
+spms_err spms_pub_writev_msg(spms_pub *pub, const struct spms_ovec *ovec, size_t len, const struct spms_msg_info *info);
+
+struct spms_ivec
+{
+    void *addr;
+    size_t len;
+};
+
+/** spms_sub_readv_msg
+ * @brief Same as spms_pub_read_msg, but allows reading multiple buffers at once
+ * @param sub The subscriber
+ * @param ivec (in/out) The buffers to read into (in), and the buffers that were read (out)
+ * @param len (in/out) The number of buffers to read (in), and the number of buffers that were completely read (out)
+ * @return SPMS_ERR_OK on success, error code on failure
+ */
+spms_err spms_sub_readv_msg(spms_sub *sub, struct spms_ivec *ivec, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms);
 
 /** spms_sub_read_msg
  * @brief Read a message from the ring buffer. If the ring is empty, this function will block
