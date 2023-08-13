@@ -360,7 +360,7 @@ spms_err spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len, const 
     return SPMS_ERR_OK;
 }
 
-spms_err spms_pub_writev_msg(spms_pub *pub, struct spms_ovec *ovec, size_t len, const struct spms_msg_info *info)
+spms_err spms_pub_writev_msg(spms_pub *pub, const struct spms_ovec *ovec, size_t len, const struct spms_msg_info *info)
 {
     void *ptr = NULL;
     size_t total_len = 0;
@@ -640,6 +640,43 @@ spms_err spms_sub_finalize_read(spms_sub *sub)
     if (result == 0)
         ++sub->head;
     return result;
+}
+
+spms_err spms_sub_readv_msg(spms_sub *sub, struct spms_ivec *ivec, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms)
+{
+    size_t avail_len = 0;
+    for (size_t i = 0; i < *len; ++i)
+        avail_len += ivec[i].len;
+
+    while (1)
+    {
+        const void *buf = NULL;
+        size_t buf_len = 0;
+        spms_err ret = spms_sub_get_read_buf(sub, &buf, &buf_len, info, timeout_ms);
+        if (ret != SPMS_ERR_OK)
+            return ret;
+        if (buf_len > avail_len)
+            return SPMS_ERR_INVALID_ARG;
+
+        size_t buf_idx = 0;
+        size_t to_read = buf_len;
+        while (to_read > 0)
+        {
+            size_t copy_len = to_read > ivec[buf_idx].len ? ivec[buf_idx].len : to_read;
+            memcpy(ivec[buf_idx].addr, buf, copy_len);
+            ivec[buf_idx].len = copy_len;
+            buf = (uint8_t *)buf + copy_len;
+            to_read -= copy_len;
+            if (copy_len == ivec[buf_idx].len)
+                ++buf_idx;
+        }
+
+        if (spms_sub_finalize_read(sub) == 0)
+        {
+            *len = buf_idx;
+            return SPMS_ERR_OK;
+        }
+    }
 }
 
 spms_err spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_msg_info *info, uint32_t timeout_ms)
