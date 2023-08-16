@@ -20,6 +20,8 @@
 
 #define ALIGNED __attribute__((aligned(alignof(max_align_t))))
 
+/** Publisher Constructor Test **/
+
 static int test_spms_pub_ctor_dtor()
 {
     {
@@ -37,6 +39,8 @@ static int test_spms_pub_ctor_dtor()
     }
     return 0;
 }
+
+/** Subscriber Constructor Test **/
 
 static int test_spms_sub_ctor_dtor()
 {
@@ -56,6 +60,8 @@ static int test_spms_sub_ctor_dtor()
     }
     return 0;
 }
+
+/** Read-Write Thread Test **/
 
 struct read_thread_args
 {
@@ -138,11 +144,42 @@ static int test_spms_read_write_consistency()
     return 0;
 }
 
+static int test_spms_readv_writev()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    void *buf = calloc(1, 256 * 1024);
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    // write
+    {
+        struct spms_ovec iov[2] = {{.addr = "test1", .len = 4}, {.addr = "test2", .len = 4}};
+        TEST(spms_pub_writev_msg(pub, iov, 2, NULL) == SPMS_ERR_OK);
+    }
+
+    // read
+    {
+        char buf1[4], buf2[4];
+        struct spms_ivec iov[2] = {{.addr = buf1, .len = 4}, {.addr = buf2, .len = 4}};
+        size_t len = 2;
+        TEST(spms_sub_readv_msg(sub, iov, &len, NULL, 1000) == SPMS_ERR_OK);
+        TEST(len == 2);
+        TEST(iov[0].len == 4);
+        TEST(iov[1].len == 4);
+        TEST(memcmp(iov[0].addr, "test1", 4) == 0);
+        TEST(memcmp(iov[1].addr, "test2", 4) == 0);
+    }
+    return 0;
+}
+
 int main()
 {
     TEST(test_spms_pub_ctor_dtor() == 0);
     TEST(test_spms_sub_ctor_dtor() == 0);
     TEST(test_spms_read_write_consistency() == 0);
+    TEST(test_spms_readv_writev() == 0);
     printf("All tests passed\n");
     return 0;
 }
