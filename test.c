@@ -174,12 +174,51 @@ static int test_spms_readv_writev()
     return 0;
 }
 
+static int test_spms_empty_read()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    // read
+    {
+        char buffer[128];
+        size_t len = sizeof(buffer);
+        TEST(spms_sub_read_msg(sub, buffer, &len, NULL, 0) == SPMS_ERR_TIMEOUT);
+    }
+    return 0;
+}
+
+static int test_spms_empty_readv()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    // read
+    {
+        char buffer[128];
+        struct spms_ivec iov[2] = {{.addr = buffer, .len = sizeof(buffer)}};
+        size_t len = 1;
+        TEST(spms_sub_readv_msg(sub, iov, &len, NULL, 0) == SPMS_ERR_TIMEOUT);
+    }
+    return 0;
+}
+
 int main()
 {
     TEST(test_spms_pub_ctor_dtor() == 0);
     TEST(test_spms_sub_ctor_dtor() == 0);
     TEST(test_spms_read_write_consistency() == 0);
     TEST(test_spms_readv_writev() == 0);
+    TEST(test_spms_empty_read() == 0);
+    TEST(test_spms_empty_readv() == 0);
     printf("All tests passed\n");
     return 0;
 }
