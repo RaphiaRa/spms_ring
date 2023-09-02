@@ -148,7 +148,7 @@ static int test_spms_readv_writev()
 {
     spms_pub *pub;
     spms_sub *sub;
-    void *buf = calloc(1, 256 * 1024);
+    uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
