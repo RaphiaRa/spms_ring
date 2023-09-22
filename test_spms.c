@@ -12,7 +12,7 @@
 #include <stdalign.h>
 
 #define TEST(x)                                                        \
-    if ((x) == 0)                                                        \
+    if ((x) == 0)                                                      \
     {                                                                  \
         printf("Test failed: %s, at %s:%d\n", #x, __FILE__, __LINE__); \
         return -1;                                                     \
@@ -81,7 +81,7 @@ static int test_write(spms_pub *pub)
         size_t blocks = test_blocks_per_msg[i % (sizeof(test_blocks_per_msg) / sizeof(test_blocks_per_msg[0]))];
         TEST(spms_pub_get_write_buf(pub, &addr, blocks * sizeof(test_sequence)) == SPMS_ERR_OK);
         for (size_t j = 0; j < blocks; j++)
-            memcpy(addr + j * sizeof(test_sequence), test_sequence, sizeof(test_sequence));
+            memcpy((uint8_t *)addr + j * sizeof(test_sequence), test_sequence, sizeof(test_sequence));
         TEST(spms_pub_flush_write_buf(pub, addr, blocks * sizeof(test_sequence), NULL) == SPMS_ERR_OK);
         usleep(50);
     }
