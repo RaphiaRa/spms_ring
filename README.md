@@ -14,8 +14,37 @@ subscribers can jump to the next key message.
 - A zero copy API.
 - Optionally letting the subscriber wait for new messages if the ring is empty.
 
+Currently only Linux and MacOS are fully supported. The wait for new messages feature is not implemented for Windows, but it should be easy to do so.
+
+### Build & run tests/examples
+
+```sh
+git clone git@github.com:RaphiaRa/spms_ring.git
+mkdir spms_ring/build; cd spms_ring/build
+cmake ..
+make
+```
+
+Run the tests with
+```sh
+./test_spms
+```
+
+Run the example publisher
+```sh
+./example pub
+```
+
+Run the example subscriber in one or multiple other terminals
+```sh
+./example sub
+```
+
 ### Installation
-Simply copy `spms.h` and `spms.c` into your project and include `spms.h` in your source files.
+
+Either...
+- simply copy `spms.h` and `spms.c` into your project and include `spms.h` in your source files.
+- or use CMake's `add_subdirectory` to add `spms_ring` as a subdirectory to your project (This will add the `spms::spms` target to your project).
 
 ### Basic Usage
 
@@ -45,20 +74,4 @@ Read data from the ring
 ```c
 uint8_t data[1024];
 spms_sub_read_msg(sub, data, sizeof(data), NULL, 0);
-```
-
-### Examples
-Compile the example with
-```sh
-gcc -std=c11 -o example example.c spms.c
-```
-**Note:** On Linux you need to add `-lrt` to the command above.
-Run the publisher
-```sh
-./example pub
-```
-
-Run the subscriber in one or multiple other terminals
-```sh
-./example sub
 ```
