@@ -12,7 +12,7 @@
 #include <stdalign.h>
 
 #define TEST(x)                                                        \
-    if (x == 0)                                                        \
+    if ((x) == 0)                                                        \
     {                                                                  \
         printf("Test failed: %s, at %s:%d\n", #x, __FILE__, __LINE__); \
         return -1;                                                     \
