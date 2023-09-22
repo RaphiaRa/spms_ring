@@ -34,4 +34,9 @@ if (NOT SPMS_DISABLE_EXAMPLES)
     target_link_libraries(example PUBLIC 
         spms::spms
     )
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(example PUBLIC 
+            rt
+        )
+    endif()
 endif()
