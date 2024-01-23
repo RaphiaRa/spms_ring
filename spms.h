@@ -14,6 +14,7 @@ typedef enum spms_err
 
     /** SPMS_ERR_INVALID_POS
      * @brief The current read position is invalid, probably because it was overwritten
+     * If this occurs frequently, consider increasing the size of the ring buffer
      */
     SPMS_ERR_INVALID_POS = -2,
 
@@ -191,6 +192,8 @@ spms_err spms_sub_rewind(spms_sub *sub);
  * @param pos (out) The position of the msg at or after ts
  * @param ts The timestamp to search for
  * @return SPMS_ERR_OK on success, error code on failure
+ * Possible error codes:
+ * SPMS_ERR_NOT_AVAILABLE: There is no msg with a timestamp >= ts
  */
 spms_err spms_sub_get_pos_by_ts(spms_sub *sub, uint32_t *pos, uint64_t ts);
 
@@ -199,6 +202,9 @@ spms_err spms_sub_get_pos_by_ts(spms_sub *sub, uint32_t *pos, uint64_t ts);
  * @param sub The subscriber
  * @param ts (out) The timestamp of the latest msg
  * @return SPMS_ERR_OK on success, error code on failure
+ * Possible error codes:
+ * SPMS_ERR_NOT_AVAILABLE: There is no msg in the ring
+ * SPMS_ERR_INVALID_POS: The latest msg was overwritten while reading
  */
 spms_err spms_sub_get_latest_ts(spms_sub *sub, uint64_t *ts);
 
@@ -215,6 +221,8 @@ spms_err spms_sub_get_latest_pos(spms_sub *sub, uint32_t *pos);
  * @param sub The subscriber
  * @param pos (out) The position of the latest key msg
  * @return SPMS_ERR_OK on success, error code on failure
+ * Possible error codes:
+ * SPMS_ERR_NOT_AVAILABLE: There is no key msg in the ring
  */
 spms_err spms_sub_get_latest_key_pos(spms_sub *sub, uint32_t *pos);
 

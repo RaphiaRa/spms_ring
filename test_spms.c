@@ -85,7 +85,6 @@ static int test_write(spms_pub *pub)
         TEST(spms_pub_flush_write_buf(pub, addr, blocks * sizeof(test_sequence), NULL) == SPMS_ERR_OK);
         usleep(50);
     }
-    spms_pub_free(pub);
     return 0;
 }
 
@@ -140,6 +139,7 @@ static int test_spms_read_write_consistency()
         pthread_join(read_threads[i], NULL);
     for (int i = 0; i < 4; i++)
         TEST(args[i].result == SPMS_ERR_OK);
+    spms_pub_free(pub);
     free(buf);
     return 0;
 }
@@ -171,6 +171,8 @@ static int test_spms_readv_writev()
         TEST(memcmp(iov[0].addr, "test1", 4) == 0);
         TEST(memcmp(iov[1].addr, "test2", 4) == 0);
     }
+    spms_pub_free(pub);
+    spms_sub_free(sub);
     return 0;
 }
 
@@ -182,13 +184,40 @@ static int test_spms_empty_read()
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
-
     // read
     {
         char buffer[128];
         size_t len = sizeof(buffer);
         TEST(spms_sub_read_msg(sub, buffer, &len, NULL, 0) == SPMS_ERR_TIMEOUT);
     }
+    spms_pub_free(pub);
+    spms_sub_free(sub);
+    return 0;
+}
+
+static int test_spms_read_exceeding_pos()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+    { // write
+        TEST(spms_pub_write_msg(pub, "test1", 5, NULL) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, "test2", 5, NULL) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, "test3", 5, NULL) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, "test4", 5, NULL) == SPMS_ERR_OK);
+    }
+    { // read at an position exceeding the total number of messages will read the latest message
+        spms_sub_set_pos(sub, 100);
+        char buffer[128];
+        size_t len = sizeof(buffer);
+        TEST(spms_sub_read_msg(sub, buffer, &len, NULL, 0) == SPMS_ERR_OK);
+        TEST(strncmp(buffer, "test4", 5) == 0);
+    }
+    spms_pub_free(pub);
+    spms_sub_free(sub);
     return 0;
 }
 
@@ -200,14 +229,257 @@ static int test_spms_empty_readv()
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
-
-    // read
-    {
+    { // read
         char buffer[128];
         struct spms_ivec iov[2] = {{.addr = buffer, .len = sizeof(buffer)}};
         size_t len = 1;
         TEST(spms_sub_readv_msg(sub, iov, &len, NULL, 0) == SPMS_ERR_TIMEOUT);
     }
+    spms_pub_free(pub);
+    spms_sub_free(sub);
+    return 0;
+}
+
+static int test_spms_get_next_key_pos()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[8 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 4, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // write
+        const char *msg = "test";
+        TEST(spms_pub_write_msg(pub, msg, sizeof(msg), NULL) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, msg, sizeof(msg), NULL) == SPMS_ERR_OK);
+        struct spms_msg_info info = {0};
+        info.is_key = 1;
+        TEST(spms_pub_write_msg(pub, msg, sizeof(msg), &info) == SPMS_ERR_OK);
+    }
+    { // next key pos should be 2
+        uint32_t pos = 0;
+        TEST(spms_sub_get_next_key_pos(sub, &pos) == 0);
+        TEST(pos == 2);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
+static int test_spms_get_next_key_pos_empty()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[8 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 4, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+    { // can't find next key pos
+        uint32_t pos = 0;
+        TEST(spms_sub_get_next_key_pos(sub, &pos) == SPMS_ERR_NOT_AVAILABLE);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
+static int test_spms_get_next_key_pos_invalid_pos()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[8 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 4, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // write and overwrite first msg
+        TEST(spms_pub_write_msg(pub, "test1", 5, NULL) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, "test2", 5, NULL) == SPMS_ERR_OK);
+        struct spms_msg_info info = {0};
+        info.is_key = 1;
+        TEST(spms_pub_write_msg(pub, "test3", 5, &info) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, "test4", 5, NULL) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, "test5", 5, NULL) == SPMS_ERR_OK);
+    }
+    { // invalid frames should be ignored and next key pos should be 2
+        uint32_t pos = 0;
+        TEST(spms_sub_get_next_key_pos(sub, &pos) == 0);
+        TEST(pos == 2);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
+static int test_spms_get_pos_by_ts_empty()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // Searching for ts 10 should not find anything
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 10) == SPMS_ERR_NOT_AVAILABLE);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
+static int test_spms_get_pos_by_ts_single()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // write
+        struct spms_msg_info info = {0};
+        info.ts = 10;
+        TEST(spms_pub_write_msg(pub, "test1", 5, &info) == SPMS_ERR_OK);
+    }
+    { // Searching for ts 15 should not find anything
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 15) == SPMS_ERR_NOT_AVAILABLE);
+    }
+    { // Searching for ts 10 should return pos 0
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 10) == 0);
+        TEST(pos == 0);
+    }
+    { // Searching for ts 5 should return pos 0
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 5) == 0);
+        TEST(pos == 0);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
+static int test_spms_get_pos_by_ts_multiple()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // write
+        const char *msg = "test";
+        struct spms_msg_info info = {0};
+        info.ts = 10;
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
+        info.ts = 20;
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
+        info.ts = 30;
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
+    }
+    { // Searching for ts 5 should return pos 0
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 5) == 0);
+        TEST(pos == 0);
+    }
+    { // Searching for ts 10 should return pos 0
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 10) == 0);
+        TEST(pos == 0);
+    }
+    { // Searching for ts 15 should return pos 1
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 15) == 0);
+        TEST(pos == 1);
+    }
+    { // Searching for ts 30 should return pos 2
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 30) == 0);
+        TEST(pos == 2);
+    }
+    { // Searching for ts 35 should not find anything
+        uint32_t pos = 0;
+        TEST(spms_sub_get_pos_by_ts(sub, &pos, 35) == SPMS_ERR_NOT_AVAILABLE);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
+static int test_spms_get_latest_ts_empty()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // Searching for latest ts should not find anything
+        uint64_t ts = 0;
+        TEST(spms_sub_get_latest_ts(sub, &ts) == SPMS_ERR_NOT_AVAILABLE);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
+static int test_spms_get_latest_ts_single()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // write
+        const char *msg = "test";
+        struct spms_msg_info info = {0};
+        info.ts = 10;
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
+    }
+    { // Searching for latest ts should return 10
+        uint64_t ts = 0;
+        TEST(spms_sub_get_latest_ts(sub, &ts) == 0);
+        TEST(ts == 10);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
+static int test_spms_get_latest_ts_multiple()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // write
+        const char *msg = "test";
+        struct spms_msg_info info = {0};
+        info.ts = 10;
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
+        info.ts = 20;
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
+        info.ts = 30;
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
+    }
+    { // Searching for latest ts should return 30
+        uint64_t ts = 0;
+        TEST(spms_sub_get_latest_ts(sub, &ts) == 0);
+        TEST(ts == 30);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
     return 0;
 }
 
@@ -218,7 +490,17 @@ int main()
     TEST(test_spms_read_write_consistency() == 0);
     TEST(test_spms_readv_writev() == 0);
     TEST(test_spms_empty_read() == 0);
+    TEST(test_spms_read_exceeding_pos() == 0);
     TEST(test_spms_empty_readv() == 0);
+    TEST(test_spms_get_next_key_pos() == 0);
+    TEST(test_spms_get_next_key_pos_empty() == 0);
+    TEST(test_spms_get_next_key_pos_invalid_pos() == 0);
+    TEST(test_spms_get_pos_by_ts_empty() == 0);
+    TEST(test_spms_get_pos_by_ts_single() == 0);
+    TEST(test_spms_get_pos_by_ts_multiple() == 0);
+    TEST(test_spms_get_latest_ts_empty() == 0);
+    TEST(test_spms_get_latest_ts_single() == 0);
+    TEST(test_spms_get_latest_ts_multiple() == 0);
     printf("All tests passed\n");
     return 0;
 }

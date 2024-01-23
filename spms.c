@@ -402,6 +402,8 @@ struct spms_sub
     uint8_t ver;
 };
 
+static void ensure_valid_head(spms_sub *ring, uint32_t tail, uint32_t head);
+
 static spms_err verify_pos(spms_sub *sub, uint32_t pos)
 {
     uint32_t tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire); // sync with producer
@@ -457,16 +459,21 @@ spms_err spms_sub_get_pos_by_ts(spms_sub *ring, uint32_t *pos, uint64_t ts)
 {
     uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
     uint32_t head = atomic_load_explicit(&ring->msg_ring->head, memory_order_relaxed);
-    while (head < tail - 1)
+
+    if (tail == head)
+        return SPMS_ERR_NOT_AVAILABLE;
+
+    while (head < tail)
     {
-        struct spms_msg *a = &ring->msgs[(tail - 2) & ring->msg_ring->mask];
-        struct spms_msg *b = &ring->msgs[(tail - 1) & ring->msg_ring->mask];
-        --tail;
-        if (a->ts <= ts && b->ts >= ts)
+        struct spms_msg *a = &ring->msgs[head & ring->msg_ring->mask];
+        if (a->ts >= ts)
         {
-            *pos = tail;
-            return verify_pos(ring, tail);
+            *pos = head;
+            if (verify_pos(ring, head) != SPMS_ERR_OK)
+                return SPMS_ERR_NOT_AVAILABLE;
+            return SPMS_ERR_OK;
         }
+        ++head;
     }
     return SPMS_ERR_NOT_AVAILABLE;
 }
@@ -474,6 +481,9 @@ spms_err spms_sub_get_pos_by_ts(spms_sub *ring, uint32_t *pos, uint64_t ts)
 spms_err spms_sub_get_latest_ts(spms_sub *ring, uint64_t *ts)
 {
     uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
+    uint32_t head = atomic_load_explicit(&ring->msg_ring->head, memory_order_relaxed);
+    if (tail == head)
+        return SPMS_ERR_NOT_AVAILABLE;
     struct spms_msg *msg = &ring->msgs[(tail - 1) & ring->msg_ring->mask];
     *ts = atomic_load_explicit(&msg->ts, memory_order_relaxed);
     return verify_pos(ring, tail - 1);
@@ -514,12 +524,11 @@ spms_err spms_sub_get_cur_ts(spms_sub *sub, uint64_t *ts)
 
 spms_err spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
 {
-    uint32_t pos = 0;
-    int32_t ret = 0;
-    if ((ret = spms_sub_get_and_verify_cur_pos(sub, &pos)) < 0)
-        return ret;
-
     uint32_t tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire);
+    uint32_t head = atomic_load_explicit(&sub->msg_ring->head, memory_order_relaxed);
+    ensure_valid_head(sub, tail, head);
+    uint32_t pos = sub->head;
+
     while (pos < tail)
     {
         struct spms_msg *msg = &sub->msgs[pos & sub->msg_ring->mask];
@@ -528,7 +537,9 @@ spms_err spms_sub_get_next_key_pos(spms_sub *sub, uint32_t *out)
         {
             *out = pos;
             // Check whether out read position was overwritten
-            return verify_pos(sub, pos);
+            if (verify_pos(sub, pos) != SPMS_ERR_OK)
+                return SPMS_ERR_NOT_AVAILABLE;
+            return SPMS_ERR_OK;
         }
         ++pos;
     }
@@ -566,6 +577,11 @@ static void ensure_valid_head(spms_sub *ring, uint32_t tail, uint32_t head)
         uint32_t shift = (head - ring->head) + (tail - head) / 16;
         ring->dropped += shift;
         ring->head += shift;
+    }
+    else if (ring->head > tail)
+    {
+        if (tail != head)
+            ring->head = tail - 1;
     }
 }
 
