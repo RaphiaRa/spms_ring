@@ -221,6 +221,25 @@ static int test_spms_read_exceeding_pos()
     return 0;
 }
 
+static int test_spms_read_exceeding_pos_empty()
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+    { // read at an position exceeding when no messages are available will return SPMS_ERR_TIMEOUT
+        spms_sub_set_pos(sub, 100);
+        char buffer[128];
+        size_t len = sizeof(buffer);
+        TEST(spms_sub_read_msg(sub, buffer, &len, NULL, 0) == SPMS_ERR_TIMEOUT)
+    }
+    spms_pub_free(pub);
+    spms_sub_free(sub);
+    return 0;
+}
+
 static int test_spms_empty_readv()
 {
     spms_pub *pub;
@@ -491,6 +510,7 @@ int main()
     TEST(test_spms_readv_writev() == 0);
     TEST(test_spms_empty_read() == 0);
     TEST(test_spms_read_exceeding_pos() == 0);
+    TEST(test_spms_read_exceeding_pos_empty() == 0);
     TEST(test_spms_empty_readv() == 0);
     TEST(test_spms_get_next_key_pos() == 0);
     TEST(test_spms_get_next_key_pos_empty() == 0);
