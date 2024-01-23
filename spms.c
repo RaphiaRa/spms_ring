@@ -580,8 +580,9 @@ static void ensure_valid_head(spms_sub *ring, uint32_t tail, uint32_t head)
     }
     else if (ring->head > tail)
     {
+        ring->head = tail;
         if (tail != head)
-            ring->head = tail - 1;
+            --ring->head;
     }
 }
 
