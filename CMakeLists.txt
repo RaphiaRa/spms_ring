@@ -4,7 +4,9 @@ project(spms)
 set(CMAKE_C_STANDARD 11)
 
 # Extra warnings, treat warnings as error
-if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
+if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU" 
+    OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang" 
+    OR "${CMAKE_C_COMPILER_ID}" STREQUAL "AppleClang")
   add_compile_options(-Wall -Wextra -pedantic -Werror)
 endif()
 

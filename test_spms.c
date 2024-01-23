@@ -22,7 +22,7 @@
 
 /** Publisher Constructor Test **/
 
-static int test_spms_pub_ctor_dtor()
+static int test_spms_pub_ctor_dtor(void)
 {
     {
         spms_pub *pub;
@@ -42,7 +42,7 @@ static int test_spms_pub_ctor_dtor()
 
 /** Subscriber Constructor Test **/
 
-static int test_spms_sub_ctor_dtor()
+static int test_spms_sub_ctor_dtor(void)
 {
     {
         spms_sub *sub;
@@ -116,7 +116,7 @@ static void *test_read_thread(void *args)
     return NULL;
 }
 
-static int test_spms_read_write_consistency()
+static int test_spms_read_write_consistency(void)
 {
     pthread_t read_threads[4];
     struct read_thread_args args[4] = {0};
@@ -144,7 +144,7 @@ static int test_spms_read_write_consistency()
     return 0;
 }
 
-static int test_spms_readv_writev()
+static int test_spms_readv_writev(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -176,7 +176,7 @@ static int test_spms_readv_writev()
     return 0;
 }
 
-static int test_spms_empty_read()
+static int test_spms_empty_read(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -195,7 +195,7 @@ static int test_spms_empty_read()
     return 0;
 }
 
-static int test_spms_read_exceeding_pos()
+static int test_spms_read_exceeding_pos(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -221,7 +221,7 @@ static int test_spms_read_exceeding_pos()
     return 0;
 }
 
-static int test_spms_read_exceeding_pos_empty()
+static int test_spms_read_exceeding_pos_empty(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -240,7 +240,7 @@ static int test_spms_read_exceeding_pos_empty()
     return 0;
 }
 
-static int test_spms_empty_readv()
+static int test_spms_empty_readv(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -259,7 +259,7 @@ static int test_spms_empty_readv()
     return 0;
 }
 
-static int test_spms_get_next_key_pos()
+static int test_spms_get_next_key_pos(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -286,7 +286,7 @@ static int test_spms_get_next_key_pos()
     return 0;
 }
 
-static int test_spms_get_next_key_pos_empty()
+static int test_spms_get_next_key_pos_empty(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -303,7 +303,7 @@ static int test_spms_get_next_key_pos_empty()
     return 0;
 }
 
-static int test_spms_get_next_key_pos_invalid_pos()
+static int test_spms_get_next_key_pos_invalid_pos(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -331,7 +331,7 @@ static int test_spms_get_next_key_pos_invalid_pos()
     return 0;
 }
 
-static int test_spms_get_pos_by_ts_empty()
+static int test_spms_get_pos_by_ts_empty(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -349,7 +349,7 @@ static int test_spms_get_pos_by_ts_empty()
     return 0;
 }
 
-static int test_spms_get_pos_by_ts_single()
+static int test_spms_get_pos_by_ts_single(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -382,7 +382,7 @@ static int test_spms_get_pos_by_ts_single()
     return 0;
 }
 
-static int test_spms_get_pos_by_ts_multiple()
+static int test_spms_get_pos_by_ts_multiple(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -430,7 +430,7 @@ static int test_spms_get_pos_by_ts_multiple()
     return 0;
 }
 
-static int test_spms_get_latest_ts_empty()
+static int test_spms_get_latest_ts_empty(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -448,7 +448,7 @@ static int test_spms_get_latest_ts_empty()
     return 0;
 }
 
-static int test_spms_get_latest_ts_single()
+static int test_spms_get_latest_ts_single(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -473,7 +473,7 @@ static int test_spms_get_latest_ts_single()
     return 0;
 }
 
-static int test_spms_get_latest_ts_multiple()
+static int test_spms_get_latest_ts_multiple(void)
 {
     spms_pub *pub;
     spms_sub *sub;
@@ -502,7 +502,7 @@ static int test_spms_get_latest_ts_multiple()
     return 0;
 }
 
-int main()
+int main(void)
 {
     TEST(test_spms_pub_ctor_dtor() == 0);
     TEST(test_spms_sub_ctor_dtor() == 0);

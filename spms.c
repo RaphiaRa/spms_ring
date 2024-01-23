@@ -131,6 +131,7 @@ static int32_t spms_buf_ring_mem_init(void *mem, size_t size)
 static void spms_buf_ring_release_buffer(struct spms_buf_ring *ring, uint64_t offset, uint32_t len)
 {
     assert((ring->head & ring->mask) == offset && "Released buffer must match ring");
+    (void)offset;
     ring->head += (uint64_t)len;
 }
 

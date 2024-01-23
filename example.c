@@ -24,7 +24,7 @@ static int stop = 0;
 
 /** Publisher Example **/
 
-static int32_t pub()
+static int32_t pub(void)
 {
     signal(SIGINT, sigint_handler);
     void *mem = NULL;
@@ -67,7 +67,7 @@ static int32_t pub()
 
 /** Subscriber Example **/
 
-static int32_t sub()
+static int32_t sub(void)
 {
     signal(SIGINT, sigint_handler);
     void *mem = NULL;
