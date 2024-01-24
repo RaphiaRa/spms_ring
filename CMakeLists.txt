@@ -7,7 +7,7 @@ set(CMAKE_C_STANDARD 11)
 if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU" 
     OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang" 
     OR "${CMAKE_C_COMPILER_ID}" STREQUAL "AppleClang")
-  add_compile_options(-Wall -Wextra -pedantic -Werror)
+  add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wconversion)
 endif()
 
 add_library(spms 
