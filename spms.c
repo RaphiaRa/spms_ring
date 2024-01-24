@@ -86,7 +86,7 @@ static int32_t spms_msg_ring_mem_init(void *mem, size_t msg_count)
     if ((msg_count & (msg_count - 1)) != 0)
         return SPMS_ERR_INVALID_ARG;
     spms_msg_ring *ring = (spms_msg_ring *)mem;
-    ring->entries = msg_count;
+    ring->entries = (uint32_t)msg_count;
     ring->mask = ring->entries - 1;
     ring->head = 0;
     ring->tail = 0;

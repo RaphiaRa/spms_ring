@@ -50,7 +50,7 @@ static int32_t pub(void)
         char time_buf[64];
         uint64_t ts = get_time(time_buf, sizeof(time_buf));
         char buf[1024];
-        int8_t is_key = (++idx % 10 == 0);
+        uint8_t is_key = (++idx % 10 == 0);
         if (is_key)
             sprintf(buf, "This is a key message");
         else
@@ -130,7 +130,7 @@ static int32_t create_shm(void **out, const char *name, size_t len, int32_t flag
     int32_t fd = shm_open(name, flags | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd != -1 && (flags & O_CREAT))
     {
-        if (ftruncate(fd, len) == -1)
+        if (ftruncate(fd, (off_t)len) == -1)
             goto err;
     }
     if (fd == -1)
@@ -147,7 +147,7 @@ static int32_t create_shm(void **out, const char *name, size_t len, int32_t flag
         struct stat st;
         if (fstat(fd, &st) == -1)
             goto err;
-        len = st.st_size;
+        len = (size_t)st.st_size;
     }
     void *seg = mmap(NULL, len, PROT_READ | PROT_WRITE,
                      MAP_SHARED, fd, 0);
