@@ -27,7 +27,7 @@ extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
 #define SPMS_RING_HEADER_LENGTH 128
 #define SPMS_MSG_RING_HEADER_LENGTH 128
 #define SPMS_BUF_RING_HEADER_LENGTH 128
-#define SPMS_INIT_CODE 0x00000001
+#define SPMS_INIT_CODE 0x1
 
 #define atomic_u8 atomic_uint_least8_t
 #define atomic_u32 atomic_uint_least32_t
@@ -50,16 +50,11 @@ struct spms_msg
 
 static void spms_msg_release(struct spms_msg *msg)
 {
-    uint8_t is_key = 0;
-    uint8_t is_nil = 0;
-    uint32_t len = 0;
-    uint64_t ts = 0;
-    uint64_t offset = 0;
-    atomic_store_explicit(&msg->is_key, is_key, memory_order_relaxed);
-    atomic_store_explicit(&msg->is_nil, is_nil, memory_order_relaxed);
-    atomic_store_explicit(&msg->len, len, memory_order_relaxed);
-    atomic_store_explicit(&msg->ts, ts, memory_order_relaxed);
-    atomic_store_explicit(&msg->offset, offset, memory_order_relaxed);
+    atomic_store_explicit(&msg->is_key, 0, memory_order_relaxed);
+    atomic_store_explicit(&msg->is_nil, 0, memory_order_relaxed);
+    atomic_store_explicit(&msg->len, 0, memory_order_relaxed);
+    atomic_store_explicit(&msg->ts, 0, memory_order_relaxed);
+    atomic_store_explicit(&msg->offset, 0, memory_order_relaxed);
 }
 
 /** spms_msg_ring **/
@@ -256,7 +251,7 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
         msg->is_nil = 1;
     }
     ++tail;
-    atomic_store_explicit(&ring->msg_ring->tail, tail, __ATOMIC_RELEASE);
+    atomic_store_explicit(&ring->msg_ring->tail, tail, memory_order_release);
     if (!ring->nonblocking)
     {
 #ifdef CV_USE_FUTEX
@@ -300,7 +295,7 @@ spms_err spms_pub_create(spms_pub **out, void *mem, struct spms_config *config)
     if (!p)
         return SPMS_ERR_OS;
 
-    spms_err ret = 0;
+    spms_err ret = SPMS_ERR_OK;
     spms_ring *ring = (spms_ring *)mem;
     if (ring->init_code != SPMS_INIT_CODE) // first time initialization
     {
@@ -628,8 +623,8 @@ spms_err spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *ou
                 return SPMS_ERR_AGAIN;
             if (timeout_ms == 0)
                 return SPMS_ERR_TIMEOUT;
-            int32_t ret = spms_wait_tail_changed(ring, tail, timeout_ms);
-            if (ret < 0)
+            spms_err ret = spms_wait_tail_changed(ring, tail, timeout_ms);
+            if (ret != SPMS_ERR_OK)
                 return ret;
             timeout_ms = 0; // don't wait again
             continue;
