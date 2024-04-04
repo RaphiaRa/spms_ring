@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdalign.h>
 #include <stdatomic.h>
+#include <time.h>
 
 #ifdef CV_USE_FUTEX
 #include <sys/syscall.h>
@@ -36,6 +37,15 @@ extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
 static struct spms_config g_default_config = {.buf_length = 1 << 20,
                                               .msg_entries = 1 << 10,
                                               .nonblocking = 0};
+
+/** clock **/
+
+static uint32_t spms_clock_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)ts.tv_sec * 1000 + (uint32_t)ts.tv_nsec / 1000000;
+}
 
 /** spms_msg **/
 
@@ -590,25 +600,37 @@ spms_err spms_sub_ensure_valid_cur_pos(spms_sub *sub)
     return SPMS_ERR_OK;
 }
 
-static spms_err spms_wait_tail_changed(spms_sub *sub, uint32_t tail, uint32_t timeout_ms)
+static spms_err spms_wait_tail_changed(spms_sub *sub, uint32_t *tail, uint32_t timeout_ms)
 {
+    while (1)
+    {
+        uint32_t tp1 = spms_clock_ms();
 #ifdef CV_USE_FUTEX
-    struct timespec ts;
-    uint32_t seconds = timeout_ms / 1000;
-    ts.tv_nsec = (long)(timeout_ms - seconds * 1000) * 1000000;
-    ts.tv_sec = (time_t)seconds;
-    syscall(SYS_futex, &sub->msg_ring->tail, FUTEX_WAIT, tail, &ts);
+        struct timespec ts;
+        uint32_t seconds = timeout_ms / 1000;
+        ts.tv_nsec = (long)(timeout_ms - seconds * 1000) * 1000000;
+        ts.tv_sec = (time_t)seconds;
+        syscall(SYS_futex, &sub->msg_ring->tail, FUTEX_WAIT, *tail, &ts);
 #elif CV_USE_ULOCK
-    __ulock_wait(1, &sub->msg_ring->tail, tail, timeout_ms * 1000);
+        __ulock_wait(1, &sub->msg_ring->tail, *tail, timeout_ms * 1000);
 #endif
-    return SPMS_ERR_OK;
+        uint32_t new_tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire);
+        if (new_tail != *tail) {
+            *tail = new_tail;
+            return SPMS_ERR_OK;
+        }
+        uint32_t tp2 = spms_clock_ms();
+        if (tp2 - tp1 >= timeout_ms)
+            return SPMS_ERR_TIMEOUT;
+        timeout_ms -= (tp2 - tp1);
+    }
 }
 
 spms_err spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *out_len, struct spms_msg_info *info, uint32_t timeout_ms)
 {
+    uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
     while (1)
     {
-        uint32_t tail = atomic_load_explicit(&ring->msg_ring->tail, memory_order_acquire);
         uint32_t head = atomic_load_explicit(&ring->msg_ring->head, memory_order_relaxed);
         ensure_valid_head(ring, tail, head);
 
@@ -622,7 +644,7 @@ spms_err spms_sub_get_read_buf(spms_sub *ring, const void **out_addr, size_t *ou
                 return SPMS_ERR_AGAIN;
             if (timeout_ms == 0)
                 return SPMS_ERR_TIMEOUT;
-            spms_err ret = spms_wait_tail_changed(ring, tail, timeout_ms);
+            spms_err ret = spms_wait_tail_changed(ring, &tail, timeout_ms);
             if (ret != SPMS_ERR_OK)
                 return ret;
             timeout_ms = 0; // don't wait again
@@ -714,9 +736,9 @@ spms_err spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_
 
 spms_err spms_sub_wait_readable(spms_sub *sub, uint32_t timeout_ms)
 {
+    uint32_t tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire);
     while (1)
     {
-        uint32_t tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire);
         uint32_t head = atomic_load_explicit(&sub->msg_ring->head, memory_order_relaxed);
         ensure_valid_head(sub, tail, head);
 
@@ -730,7 +752,7 @@ spms_err spms_sub_wait_readable(spms_sub *sub, uint32_t timeout_ms)
             return SPMS_ERR_AGAIN;
         if (timeout_ms == 0)
             return SPMS_ERR_TIMEOUT;
-        spms_err ret = spms_wait_tail_changed(sub, tail, timeout_ms);
+        spms_err ret = spms_wait_tail_changed(sub, &tail, timeout_ms);
         if (ret != SPMS_ERR_OK)
             return ret;
         timeout_ms = 0; // don't wait again
