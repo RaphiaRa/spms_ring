@@ -395,7 +395,6 @@ struct spms_sub
     uint32_t head;
     uint32_t dropped;
     uint8_t nonblocking;
-    uint8_t ver;
 };
 
 static void ensure_valid_head(spms_sub *ring, uint32_t tail, uint32_t head);
