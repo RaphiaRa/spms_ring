@@ -515,6 +515,30 @@ static int test_spms_get_latest_ts_multiple(void)
     return 0;
 }
 
+static int test_spms_write_read_null(void)
+{
+    spms_pub *pub;
+    spms_sub *sub;
+    uint8_t buf[256 * 1024] ALIGNED = {0};
+    struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
+    TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
+    TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
+
+    { // write
+        TEST(spms_pub_write_msg(pub, NULL, 0, NULL) == SPMS_ERR_OK);
+    }
+    { // read
+        char buffer[128];
+        size_t len = sizeof(buffer);
+        struct spms_msg_info info = {0};
+        TEST(spms_sub_read_msg(sub, buffer, &len, &info, 1000) == SPMS_ERR_OK);
+        TEST(len == 0);
+    }
+    spms_sub_free(sub);
+    spms_pub_free(pub);
+    return 0;
+}
+
 int main(void)
 {
     TEST(test_spms_pub_ctor_dtor() == 0);
@@ -534,6 +558,7 @@ int main(void)
     TEST(test_spms_get_latest_ts_empty() == 0);
     TEST(test_spms_get_latest_ts_single() == 0);
     TEST(test_spms_get_latest_ts_multiple() == 0);
+    TEST(test_spms_write_read_null() == 0);
     printf("All tests passed\n");
     return 0;
 }
