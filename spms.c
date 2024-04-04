@@ -347,9 +347,9 @@ spms_err spms_pub_flush_write_buf(spms_pub *ring, void *addr, size_t len, const 
 
 spms_err spms_pub_write_msg(spms_pub *ring, const void *addr, size_t len, const struct spms_msg_info *info)
 {
-    int32_t ret = 0;
+    spms_err ret = SPMS_ERR_OK;
     void *ptr = NULL;
-    if ((ret = spms_pub_get_write_buf(ring, &ptr, len)) < 0)
+    if ((ret = spms_pub_get_write_buf(ring, &ptr, len)) != SPMS_ERR_OK)
         return ret;
     memcpy(ptr, addr, len);
     spms_pub_flush_write_buf(ring, ptr, len, info);
