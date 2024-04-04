@@ -62,6 +62,8 @@ static int test_spms_sub_ctor_dtor(void)
 }
 
 /** Read-Write Thread Test **/
+/* This test writes messages to a publisher and reads them from multiple subscriber threads */
+/* The messages are enumberated and the readers check if the messages are in order and correct */
 
 struct read_thread_args
 {
@@ -69,22 +71,32 @@ struct read_thread_args
     int result;
 };
 
-static const unsigned char test_sequence[] = {'t', 'e', 's', 't', 's', 'e', 'q', 'u', 'e', 'n', 'c', 'e'};
-static const size_t test_blocks_per_msg[] = {1, 20, 256, 490, 1024, 2040, 5500};
-static const size_t test_packet_count = 10 * 1000;
+static const char* test_data[] = {
+    "tsRdPu3Dyj45psPXri0zn49UccZ11VY1koNe0ytMmAmT305G4QvQSse8jMACI1ki8jYUPizD9EWPtDFBEZTYZvTxkfkzcmDhhbAwPbtxaWyzdRfcysUr7SkTGnozpwo0",
+    "567iilQ9VKEjLIDZHNODK5tR08IJaJNEsVCxPxWkp9RS9SeGlyBoxTrjCExy5wR2gt1akw4KFejjRta1YrrPrxUws29JPVDORbDtsdfrwCWO6eNfDBrjUdw1cRhERZYe",
+    "s0F3DRzIS7RVZiVjYb94VoPhY4IiG2J85xXjWeo7Qz3n58c3KL5CL5XsDrj2U4eYFQfzQO6lDh1Uz7ry0TRzbOkUNYS8uGxXES1vmAH2rlR4drLWt7wKQzvVO2pgyPWT",
+    "1f4rCB4b52xNxxEJJUZ7BJOKeE3vNBv8hTaBQ4WmWHH6SFFUNDfv4rQIbkLTajCeieZgOoHtpsST18o1G8j1Fdktd2xxG58vZp8vaP4BqXUIxuwOzyhcgDEMZeX8gkaF",
+    "FfM78jwpUvZQqtR3vwZioRpVKtC4YjHmnBHsx6AqiGn7EWufXGkc8Tn5qnH0FSh7HZFGy0EfagnA4WyLpHf89BTyYYd1zNvSXYcmKvjW5VpwrPIoQrIapK0832mRT3Do",
+    "qazMrT1oqraUfR7jD5ZPPfg5G2htVpRZfy7HeBoc9ko1qq48SLm1NYGCfvFJzszD8C6FNDgEsytXLRnpjcf9LtNolVPM94YCp63YcKk6dI0fDqRLvgjYUoj9xI9r9ch8",
+    "jm55odcpwlTRc5Y6nRszc4AVyFFIlnZmiQo2jc3ytygNAssf3vrH9kupdFvklqlljPY1LUxRv3glNQU6zfp4klatwrLVpLpyYjto1Uw0LH3uuZ5cDwq5cEh2eRPxgJrm",
+    "PnG92uklC58Dj36HDOb38ExvlpONtuZPdmkQNaHXhHBDtta2bsnHIUl9MsAm18CnTB6rRhS6OvDJXaRX1KQ8Sdbkl138Ch7uA5fx1Q65M0SmKSSikoAJOeZAVbN48brv",
+    "S407JP4yCjX4NrzCT8skkrwCmzBS6GNF4AsqdaKhawb09MQOOsJfvbIDEuJFiCAJQ63uA669L0WRqmvmOlCFyBeyU8PibMO2pIyO2P22R53CFzzRegduRz95oyrqb8xf",
+    "OXbtNNxNk2biFPXxkngmp7idFQ15w8MsgG9NsOURjfbmsNF1xmewdgjJ9bzAAhoD2lr1QZZbp26gRFZ0WoO61wOLsjlpU1QpMb4FaQ9NyLQQC1TgQr9OSVFnYItNHRrQ",
+};
+static const size_t test_data_count = sizeof(test_data) / sizeof(test_data[0]);
+static const size_t test_packet_count = 4 * 1024;
 
 static int test_write(spms_pub *pub)
 {
     for (size_t i = 0; i < test_packet_count; i++)
     {
-        void *addr;
-        size_t blocks = test_blocks_per_msg[i % (sizeof(test_blocks_per_msg) / sizeof(test_blocks_per_msg[0]))];
-        TEST(spms_pub_get_write_buf(pub, &addr, blocks * sizeof(test_sequence)) == SPMS_ERR_OK);
-        for (size_t j = 0; j < blocks; j++)
-            memcpy((uint8_t *)addr + j * sizeof(test_sequence), test_sequence, sizeof(test_sequence));
-        TEST(spms_pub_flush_write_buf(pub, addr, blocks * sizeof(test_sequence), NULL) == SPMS_ERR_OK);
-        usleep(50);
+        struct spms_msg_info info = {0};
+        info.ts = i;
+        const char *addr = test_data[i % test_data_count];
+        TEST(spms_pub_write_msg(pub, addr, strlen(addr), &info) == SPMS_ERR_OK);
     }
+    // send a NULL message to indicate end of messages
+    TEST(spms_pub_write_msg(pub, NULL, 0, NULL) == SPMS_ERR_OK);
     return 0;
 }
 
@@ -92,18 +104,18 @@ static int test_read(void *buf)
 {
     spms_sub *sub;
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
-    for (size_t i = 0; i < test_packet_count; i++)
+    uint64_t last_ts = 0;
+    while (1)
     {
-        char buf[128 * 1024];
+        char buf[1024];
         size_t len = sizeof(buf);
-        int ret = 0;
-        if ((ret = spms_sub_read_msg(sub, buf, &len, NULL, 1000)) == SPMS_ERR_TIMEOUT)
-            return 0;
-        if (ret != 0)
-            return ret;
-
-        for (size_t j = 0; j < len; j++)
-            TEST(buf[j] == test_sequence[j % sizeof(test_sequence)]);
+        struct spms_msg_info info = {0};
+        TEST(spms_sub_read_msg(sub, buf, &len, &info, 1000) == SPMS_ERR_OK);
+        if (len == 0)
+            break;
+        TEST(last_ts == 0 || info.ts == last_ts + 1);
+        last_ts = info.ts;
+        TEST(memcmp(test_data[info.ts % test_data_count], buf, len) == 0);
     }
     spms_sub_free(sub);
     return 0;
@@ -116,25 +128,26 @@ static void *test_read_thread(void *args)
     return NULL;
 }
 
+#define TEST_THREAD_COUNT 4
 static int test_spms_read_write_consistency(void)
 {
-    pthread_t read_threads[4];
-    struct read_thread_args args[4] = {0};
-
+    pthread_t read_threads[TEST_THREAD_COUNT];
+    struct read_thread_args args[TEST_THREAD_COUNT] = {0};
     spms_pub *pub;
-    void *buf = calloc(1, 4 * 1024 * 1024);
-    struct spms_config config = {.buf_length = 2 * 1024 * 1024, .msg_entries = 1024, .nonblocking = 0};
+    struct spms_config config = {.buf_length = 1 * 1024 * 1024, .msg_entries = test_packet_count, .nonblocking = 0};
+    size_t buf_size = 0;
+    spms_ring_mem_needed_size(&config, &buf_size);
+    uint8_t *buf = calloc(1, buf_size);
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
 
     // start readers
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < TEST_THREAD_COUNT; i++)
     {
         args[i].buf = buf;
         pthread_create(&read_threads[i], NULL, test_read_thread, &args[i]);
     }
 
     TEST(test_write(pub) == SPMS_ERR_OK);
-
     for (int i = 0; i < 4; i++)
         pthread_join(read_threads[i], NULL);
     for (int i = 0; i < 4; i++)
