@@ -71,7 +71,7 @@ struct read_thread_args
     int result;
 };
 
-static const char* test_data[] = {
+static const char *test_data[] = {
     "tsRdPu3Dyj45psPXri0zn49UccZ11VY1koNe0ytMmAmT305G4QvQSse8jMACI1ki8jYUPizD9EWPtDFBEZTYZvTxkfkzcmDhhbAwPbtxaWyzdRfcysUr7SkTGnozpwo0",
     "567iilQ9VKEjLIDZHNODK5tR08IJaJNEsVCxPxWkp9RS9SeGlyBoxTrjCExy5wR2gt1akw4KFejjRta1YrrPrxUws29JPVDORbDtsdfrwCWO6eNfDBrjUdw1cRhERZYe",
     "s0F3DRzIS7RVZiVjYb94VoPhY4IiG2J85xXjWeo7Qz3n58c3KL5CL5XsDrj2U4eYFQfzQO6lDh1Uz7ry0TRzbOkUNYS8uGxXES1vmAH2rlR4drLWt7wKQzvVO2pgyPWT",
@@ -283,11 +283,11 @@ static int test_spms_get_next_key_pos(void)
 
     { // write
         const char *msg = "test";
-        TEST(spms_pub_write_msg(pub, msg, sizeof(msg), NULL) == SPMS_ERR_OK);
-        TEST(spms_pub_write_msg(pub, msg, sizeof(msg), NULL) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), NULL) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), NULL) == SPMS_ERR_OK);
         struct spms_msg_info info = {0};
         info.is_key = 1;
-        TEST(spms_pub_write_msg(pub, msg, sizeof(msg), &info) == SPMS_ERR_OK);
+        TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
     }
     { // next key pos should be 2
         uint32_t pos = 0;
