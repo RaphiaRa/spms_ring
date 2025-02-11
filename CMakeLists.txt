@@ -8,6 +8,9 @@ if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU"
     OR "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang" 
     OR "${CMAKE_C_COMPILER_ID}" STREQUAL "AppleClang")
   add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wconversion)
+  # sanitize address
+  add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address -fno-omit-frame-pointer)
 endif()
 
 add_library(spms 

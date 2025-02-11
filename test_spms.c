@@ -3,17 +3,16 @@
 #endif
 
 #include "spms.h"
+#include <pthread.h>
+#include <signal.h>
+#include <stdalign.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <signal.h>
-#include <pthread.h>
 #include <string.h>
-#include <stdalign.h>
+#include <unistd.h>
 
 #define TEST(x)                                                        \
-    if ((x) == 0)                                                      \
-    {                                                                  \
+    if ((x) == 0) {                                                    \
         printf("Test failed: %s, at %s:%d\n", #x, __FILE__, __LINE__); \
         return -1;                                                     \
     }
@@ -25,13 +24,13 @@
 static int test_spms_pub_ctor_dtor(void)
 {
     {
-        spms_pub *pub;
+        spms_pub* pub;
         uint8_t buffer[1024 * 1024] ALIGNED = {0};
         TEST(spms_pub_create(&pub, buffer, NULL) == 0);
         spms_pub_free(pub);
     }
     {
-        spms_pub *pub;
+        spms_pub* pub;
         struct spms_config config = {.buf_length = 1024, .msg_entries = 1024, .nonblocking = 0};
         uint8_t buffer[1024 * 1024] ALIGNED = {0};
         TEST(spms_pub_create(&pub, buffer, &config) == SPMS_ERR_OK);
@@ -45,13 +44,13 @@ static int test_spms_pub_ctor_dtor(void)
 static int test_spms_sub_ctor_dtor(void)
 {
     {
-        spms_sub *sub;
+        spms_sub* sub;
         uint8_t buffer[1024 * 1024] ALIGNED = {0};
         TEST(spms_sub_create(&sub, buffer) == SPMS_ERR_INVALID_ARG);
     }
     {
-        spms_sub *sub;
-        spms_pub *pub;
+        spms_sub* sub;
+        spms_pub* pub;
         uint8_t buffer[1024 * 1024] ALIGNED = {0};
         TEST(spms_pub_create(&pub, buffer, NULL) == SPMS_ERR_OK);
         TEST(spms_sub_create(&sub, buffer) == SPMS_ERR_OK);
@@ -65,13 +64,12 @@ static int test_spms_sub_ctor_dtor(void)
 /* This test writes messages to a publisher and reads them from multiple subscriber threads */
 /* The messages are enumberated and the readers check if the messages are in order and correct */
 
-struct read_thread_args
-{
-    void *buf;
+struct read_thread_args {
+    void* buf;
     int result;
 };
 
-static const char *test_data[] = {
+static const char* test_data[] = {
     "tsRdPu3Dyj45psPXri0zn49UccZ11VY1koNe0ytMmAmT305G4QvQSse8jMACI1ki8jYUPizD9EWPtDFBEZTYZvTxkfkzcmDhhbAwPbtxaWyzdRfcysUr7SkTGnozpwo0",
     "567iilQ9VKEjLIDZHNODK5tR08IJaJNEsVCxPxWkp9RS9SeGlyBoxTrjCExy5wR2gt1akw4KFejjRta1YrrPrxUws29JPVDORbDtsdfrwCWO6eNfDBrjUdw1cRhERZYe",
     "s0F3DRzIS7RVZiVjYb94VoPhY4IiG2J85xXjWeo7Qz3n58c3KL5CL5XsDrj2U4eYFQfzQO6lDh1Uz7ry0TRzbOkUNYS8uGxXES1vmAH2rlR4drLWt7wKQzvVO2pgyPWT",
@@ -86,13 +84,12 @@ static const char *test_data[] = {
 static const size_t test_data_count = sizeof(test_data) / sizeof(test_data[0]);
 static const size_t test_packet_count = 4 * 1024;
 
-static int test_write(spms_pub *pub)
+static int test_write(spms_pub* pub)
 {
-    for (size_t i = 0; i < test_packet_count; i++)
-    {
+    for (size_t i = 0; i < test_packet_count; i++) {
         struct spms_msg_info info = {0};
         info.ts = i;
-        const char *addr = test_data[i % test_data_count];
+        const char* addr = test_data[i % test_data_count];
         TEST(spms_pub_write_msg(pub, addr, strlen(addr), &info) == SPMS_ERR_OK);
     }
     // send a NULL message to indicate end of messages
@@ -100,13 +97,12 @@ static int test_write(spms_pub *pub)
     return 0;
 }
 
-static int test_read(void *buf)
+static int test_read(void* buf)
 {
-    spms_sub *sub;
+    spms_sub* sub;
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
     uint64_t last_ts = 0;
-    while (1)
-    {
+    while (1) {
         char buf[1024];
         size_t len = sizeof(buf);
         struct spms_msg_info info = {0};
@@ -121,9 +117,9 @@ static int test_read(void *buf)
     return 0;
 }
 
-static void *test_read_thread(void *args)
+static void* test_read_thread(void* args)
 {
-    struct read_thread_args *a = args;
+    struct read_thread_args* a = args;
     a->result = test_read(a->buf);
     return NULL;
 }
@@ -133,16 +129,15 @@ static int test_spms_read_write_consistency(void)
 {
     pthread_t read_threads[TEST_THREAD_COUNT];
     struct read_thread_args args[TEST_THREAD_COUNT] = {0};
-    spms_pub *pub;
+    spms_pub* pub;
     struct spms_config config = {.buf_length = 1 * 1024 * 1024, .msg_entries = test_packet_count, .nonblocking = 0};
     size_t buf_size = 0;
     spms_ring_mem_needed_size(&config, &buf_size);
-    uint8_t *buf = calloc(1, buf_size);
+    uint8_t* buf = calloc(1, buf_size);
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
 
     // start readers
-    for (int i = 0; i < TEST_THREAD_COUNT; i++)
-    {
+    for (int i = 0; i < TEST_THREAD_COUNT; i++) {
         args[i].buf = buf;
         pthread_create(&read_threads[i], NULL, test_read_thread, &args[i]);
     }
@@ -159,8 +154,8 @@ static int test_spms_read_write_consistency(void)
 
 static int test_spms_readv_writev(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -191,8 +186,8 @@ static int test_spms_readv_writev(void)
 
 static int test_spms_empty_read(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -210,8 +205,8 @@ static int test_spms_empty_read(void)
 
 static int test_spms_read_exceeding_pos(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -236,8 +231,8 @@ static int test_spms_read_exceeding_pos(void)
 
 static int test_spms_read_exceeding_pos_empty(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -255,8 +250,8 @@ static int test_spms_read_exceeding_pos_empty(void)
 
 static int test_spms_empty_readv(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -274,15 +269,15 @@ static int test_spms_empty_readv(void)
 
 static int test_spms_get_next_key_pos(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[8 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 4, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
 
     { // write
-        const char *msg = "test";
+        const char* msg = "test";
         TEST(spms_pub_write_msg(pub, msg, strlen(msg), NULL) == SPMS_ERR_OK);
         TEST(spms_pub_write_msg(pub, msg, strlen(msg), NULL) == SPMS_ERR_OK);
         struct spms_msg_info info = {0};
@@ -301,8 +296,8 @@ static int test_spms_get_next_key_pos(void)
 
 static int test_spms_get_next_key_pos_empty(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[8 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 4, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -318,8 +313,8 @@ static int test_spms_get_next_key_pos_empty(void)
 
 static int test_spms_get_next_key_pos_invalid_pos(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[8 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 4, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -346,8 +341,8 @@ static int test_spms_get_next_key_pos_invalid_pos(void)
 
 static int test_spms_get_pos_by_ts_empty(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -364,8 +359,8 @@ static int test_spms_get_pos_by_ts_empty(void)
 
 static int test_spms_get_pos_by_ts_single(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -397,15 +392,15 @@ static int test_spms_get_pos_by_ts_single(void)
 
 static int test_spms_get_pos_by_ts_multiple(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
 
     { // write
-        const char *msg = "test";
+        const char* msg = "test";
         struct spms_msg_info info = {0};
         info.ts = 10;
         TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
@@ -445,8 +440,8 @@ static int test_spms_get_pos_by_ts_multiple(void)
 
 static int test_spms_get_latest_ts_empty(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
@@ -463,15 +458,15 @@ static int test_spms_get_latest_ts_empty(void)
 
 static int test_spms_get_latest_ts_single(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
 
     { // write
-        const char *msg = "test";
+        const char* msg = "test";
         struct spms_msg_info info = {0};
         info.ts = 10;
         TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
@@ -488,15 +483,15 @@ static int test_spms_get_latest_ts_single(void)
 
 static int test_spms_get_latest_ts_multiple(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);
     TEST(spms_sub_create(&sub, buf) == SPMS_ERR_OK);
 
     { // write
-        const char *msg = "test";
+        const char* msg = "test";
         struct spms_msg_info info = {0};
         info.ts = 10;
         TEST(spms_pub_write_msg(pub, msg, strlen(msg), &info) == SPMS_ERR_OK);
@@ -517,8 +512,8 @@ static int test_spms_get_latest_ts_multiple(void)
 
 static int test_spms_write_read_null(void)
 {
-    spms_pub *pub;
-    spms_sub *sub;
+    spms_pub* pub;
+    spms_sub* sub;
     uint8_t buf[256 * 1024] ALIGNED = {0};
     struct spms_config config = {.buf_length = 1024, .msg_entries = 128, .nonblocking = 0};
     TEST(spms_pub_create(&pub, buf, &config) == SPMS_ERR_OK);

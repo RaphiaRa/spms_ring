@@ -3,21 +3,21 @@
 #endif
 
 #include "spms.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <unistd.h>
 #include <string.h>
-#include <signal.h>
-#include <fcntl.h>
-#include <errno.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/mman.h>
+#include <time.h>
+#include <unistd.h>
 
 /** helpers */
-static int32_t create_shm(void **out, const char *name, size_t len, int32_t flags);
-static uint64_t get_time(char *s, size_t max);
+static int32_t create_shm(void** out, const char* name, size_t len, int32_t flags);
+static uint64_t get_time(char* s, size_t max);
 static void sigint_handler(int sig);
 
 static int stop = 0;
@@ -27,26 +27,23 @@ static int stop = 0;
 static int32_t pub(void)
 {
     signal(SIGINT, sigint_handler);
-    void *mem = NULL;
+    void* mem = NULL;
     size_t mem_size = 0;
     spms_ring_mem_needed_size(NULL, &mem_size);
     int fd = create_shm(&mem, "test_ring", mem_size, O_CREAT | O_EXCL);
-    if (fd < 0)
-    {
+    if (fd < 0) {
         printf("Failed to create shared memory\n");
         return -1;
     }
 
-    spms_pub *pub = NULL;
-    if (spms_pub_create(&pub, mem, NULL) != 0)
-    {
+    spms_pub* pub = NULL;
+    if (spms_pub_create(&pub, mem, NULL) != 0) {
         printf("Failed to create publisher\n");
         return -1;
     }
 
     int idx = 0;
-    while (!stop)
-    {
+    while (!stop) {
         char time_buf[64];
         uint64_t ts = get_time(time_buf, sizeof(time_buf));
         char buf[1024];
@@ -70,17 +67,15 @@ static int32_t pub(void)
 static int32_t sub(void)
 {
     signal(SIGINT, sigint_handler);
-    void *mem = NULL;
+    void* mem = NULL;
     int fd = create_shm(&mem, "test_ring", 0, 0);
-    if (fd < 0)
-    {
+    if (fd < 0) {
         printf("Failed to create shared memory\n");
         return -1;
     }
 
-    spms_sub *sub = NULL;
-    if (spms_sub_create(&sub, mem) != SPMS_ERR_OK)
-    {
+    spms_sub* sub = NULL;
+    if (spms_sub_create(&sub, mem) != SPMS_ERR_OK) {
         printf("Failed to create publisher\n");
         return -1;
     }
@@ -88,14 +83,12 @@ static int32_t sub(void)
     uint64_t ts = 0;
     spms_sub_get_latest_ts(sub, &ts);
     uint32_t pos = 0;
-    if (spms_sub_get_latest_key_pos(sub, &pos) != SPMS_ERR_OK)
-    {
+    if (spms_sub_get_latest_key_pos(sub, &pos) != SPMS_ERR_OK) {
         printf("Failed to get lates key position\n");
         return -1;
     }
     spms_sub_set_pos(sub, pos);
-    while (!stop)
-    {
+    while (!stop) {
         char buf[1024];
         size_t len = sizeof(buf);
         if (spms_sub_read_msg(sub, buf, &len, NULL, 1000) == 0)
@@ -107,10 +100,9 @@ static int32_t sub(void)
     return 0;
 }
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
-    if (argc != 2)
-    {
+    if (argc != 2) {
         printf("Usage: %s [pub|sub]\n", argv[0]);
         return -1;
     }
@@ -118,38 +110,33 @@ int main(int argc, char **argv)
         return pub();
     else if (strcmp(argv[1], "sub") == 0)
         return sub();
-    else
-    {
+    else {
         printf("Usage: %s [pub|sub]\n", argv[0]);
         return -1;
     }
 }
 
-static int32_t create_shm(void **out, const char *name, size_t len, int32_t flags)
+static int32_t create_shm(void** out, const char* name, size_t len, int32_t flags)
 {
     int32_t fd = shm_open(name, flags | O_RDWR, S_IRUSR | S_IWUSR);
-    if (fd != -1 && (flags & O_CREAT))
-    {
+    if (fd != -1 && (flags & O_CREAT)) {
         if (ftruncate(fd, (off_t)len) == -1)
             goto err;
     }
-    if (fd == -1)
-    {
+    if (fd == -1) {
         if (errno != EEXIST)
             goto err;
         flags &= ~O_CREAT;
         fd = shm_open(name, flags | O_RDWR, S_IRUSR | S_IWUSR);
         if (fd == -1)
             goto err;
-    }
-    else
-    {
+    } else {
         struct stat st;
         if (fstat(fd, &st) == -1)
             goto err;
         len = (size_t)st.st_size;
     }
-    void *seg = mmap(NULL, len, PROT_READ | PROT_WRITE,
+    void* seg = mmap(NULL, len, PROT_READ | PROT_WRITE,
                      MAP_SHARED, fd, 0);
     if (seg == MAP_FAILED)
         goto err;
@@ -161,10 +148,10 @@ err:
     return -1;
 }
 
-static uint64_t get_time(char *s, size_t max)
+static uint64_t get_time(char* s, size_t max)
 {
     time_t t = time(NULL);
-    struct tm *tm = localtime(&t);
+    struct tm* tm = localtime(&t);
     strftime(s, max, "%c", tm);
     return (uint64_t)t;
 }
