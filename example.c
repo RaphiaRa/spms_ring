@@ -52,9 +52,9 @@ static int32_t pub(void)
         char buf[1024];
         uint8_t is_key = (++idx % 10 == 0);
         if (is_key)
-            sprintf(buf, "This is a key message");
+            snprintf(buf, sizeof(buf), "This is a key message");
         else
-            sprintf(buf, "Msg: %s", time_buf);
+            snprintf(buf, sizeof(buf), "Msg: %s", time_buf);
         struct spms_msg_info info = {is_key, ts};
         spms_pub_write_msg(pub, buf, strlen(buf), &info);
         sleep(1);
