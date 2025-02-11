@@ -722,8 +722,10 @@ spms_err spms_sub_read_msg(spms_sub *ring, void *addr, size_t *len, struct spms_
         spms_err ret = spms_sub_get_read_buf(ring, &ptr, &ptr_len, info, timeout_ms);
         if (ret != SPMS_ERR_OK)
             return ret;
-        if (ptr_len > *len)
+        if (ptr_len > *len) {
+            *len = ptr_len;
             return SPMS_ERR_INVALID_ARG;
+        }
 
         memcpy(addr, ptr, ptr_len);
         if (spms_sub_finalize_read(ring) == 0)
