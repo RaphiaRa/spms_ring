@@ -159,6 +159,9 @@ spms_err spms_sub_readv_msg(spms_sub* sub, struct spms_ivec* ivec, size_t* len, 
  * @param len (in/out) The length of the buffer addr points to (in), and the length of the message that was read (out)
  * @param timeout_ms The timeout in milliseconds.
  * @return SPMS_ERR_OK on success, error code on failure
+ *         SPMS_ERR_TIMEOUT if the timeout expired
+ *         SPMS_ERR_AGAIN if the ring buffer is empty and nonblocking is set
+ *         SPMS_ERR_INVALID_ARG if the buffer is too small to hold the message (len will be set to the required length)
  */
 spms_err spms_sub_read_msg(spms_sub* sub, void* addr, size_t* len, struct spms_msg_info* info, uint32_t timeout_ms);
 
