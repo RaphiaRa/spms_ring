@@ -14,7 +14,7 @@ subscribers can jump to the next key message.
 - A zero copy API.
 - Optionally letting the subscriber wait for new messages if the ring is empty.
 
-Currently only Linux and MacOS are fully supported. The wait for new messages feature is not implemented for Windows, but it should be easy to do so.
+Currently Linux, macOS, and Windows are fully supported.
 
 ### Build & run tests/examples
 

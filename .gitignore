@@ -1,0 +1,28 @@
+# Build directories
+build/
+*/build/
+
+# IDE files
+.vscode/
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Executable and library files
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# Temporary files
+*.tmp
+*.temp
+*~

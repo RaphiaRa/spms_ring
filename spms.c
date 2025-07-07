@@ -3,6 +3,8 @@
 #define _GNU_SOURCE
 #elif __APPLE__
 #define CV_USE_ULOCK 1
+#elif defined(_WIN32)
+#define CV_USE_WAITONADDRESS 1
 #endif
 
 #include "spms.h"
@@ -23,6 +25,9 @@
 extern int __ulock_wait(uint32_t operation, void *addr, uint64_t value,
                         uint32_t timeout);
 extern int __ulock_wake(uint32_t operation, void *addr, uint64_t wake_value);
+#elif CV_USE_WAITONADDRESS
+#include <windows.h>
+#include <synchapi.h>
 #endif
 
 #define SPMS_RING_HEADER_LENGTH 128
@@ -42,9 +47,13 @@ static struct spms_config g_default_config = {.buf_length = 1 << 20,
 
 static uint32_t spms_clock_ms(void)
 {
+#ifdef CV_USE_WAITONADDRESS
+    return GetTickCount();
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t)ts.tv_sec * 1000 + (uint32_t)ts.tv_nsec / 1000000;
+#endif
 }
 
 /** spms_msg **/
@@ -268,6 +277,8 @@ static void spms_pub_flush_write_buffer_ex(spms_pub *ring, uint64_t offset, size
         syscall(SYS_futex, &ring->msg_ring->tail, FUTEX_WAKE, INT_MAX, NULL);
 #elif CV_USE_ULOCK
         __ulock_wake(0x00000100, &ring->msg_ring->tail, 0);
+#elif CV_USE_WAITONADDRESS
+        WakeByAddressSingle(&ring->msg_ring->tail);
 #endif
     }
 }
@@ -613,6 +624,8 @@ static spms_err spms_wait_tail_changed(spms_sub *sub, uint32_t *tail, uint32_t t
         syscall(SYS_futex, &sub->msg_ring->tail, FUTEX_WAIT, *tail, &ts);
 #elif CV_USE_ULOCK
         __ulock_wait(1, &sub->msg_ring->tail, *tail, timeout_ms * 1000);
+#elif CV_USE_WAITONADDRESS
+        WaitOnAddress(&sub->msg_ring->tail, tail, sizeof(uint32_t), timeout_ms);
 #endif
         uint32_t new_tail = atomic_load_explicit(&sub->msg_ring->tail, memory_order_acquire);
         if (new_tail != *tail) {
