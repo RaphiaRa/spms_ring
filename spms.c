@@ -236,10 +236,13 @@ static void spms_pub_release_msg_from_head(spms_pub* ring)
 static spms_err spms_pub_ensure_avail_buffer(spms_pub* ring, size_t len)
 {
     uint64_t buffer_capacity = ring->buf_ring->length;
+    if (len > buffer_capacity)
+        return SPMS_ERR_INVALID_ARG; // message is too large to fit in the buffer
     uint64_t msg_capacity = ring->msg_ring->entries;
     while ((buffer_capacity - (ring->buf_ring->tail - ring->buf_ring->head) < len) || (msg_capacity == (ring->msg_ring->tail - ring->msg_ring->head))) {
         spms_pub_release_msg_from_head(ring);
     }
+    return SPMS_ERR_OK;
 }
 
 static void spms_pub_flush_write_buffer_ex(spms_pub* ring, uint64_t offset, size_t len, const struct spms_msg_info* info)
@@ -331,7 +334,9 @@ spms_err spms_pub_get_write_buf(spms_pub* ring, void** addr, size_t len)
 {
     while (1) // try until we get a suitable buffer
     {
-        spms_pub_ensure_avail_buffer(ring, len);
+        spms_err err = spms_pub_ensure_avail_buffer(ring, len);
+        if (err != SPMS_ERR_OK)
+            return err;
         uint32_t buf_len = (uint32_t)len;
         uint64_t offset = spms_buf_ring_aquire_buffer(ring->buf_ring, &buf_len);
         if (buf_len >= len) // got a suitable buffer
